@@ -25,43 +25,58 @@ func (node *Node) IsEmpty() bool {
 	return false
 }
 
-func (node *Node) FilterName(name string) []*Node {
-	return node.Filter(FilterName(name))
-}
+// func (node *Node) FilterName(name string) []*Node {
+// 	return node.Filter(FilterName(name))
+// }
 
-func (node *Node) Filter(f NodeFilter) (nodes []*Node) {
-	if f(node) {
-		nodes = append(nodes, node)
-	}
-	for _, sub := range node.NestedNodes {
-		subNodes := sub.Filter(f)
-		nodes = append(nodes, subNodes...)
-	}
-	return
-}
+// func (node *Node) Filter(f NodeFilter) (nodes []*Node) {
+// 	if f(node) {
+// 		nodes = append(nodes, node)
+// 	}
+// 	for _, sub := range node.NestedNodes {
+// 		subNodes := sub.Filter(f)
+// 		nodes = append(nodes, subNodes...)
+// 	}
+// 	return
+// }
 
-func (node *Node) Int32Slice(name string) ([]int32, bool) {
-	nodes := node.FilterName(name)
-	if len(nodes) != 1 {
-		return nil, false
-	}
-	properties := nodes[0].Properties
-	if len(properties) != 1 {
-		return nil, false
-	}
-	return properties[0].AsInt32Slice()
-}
+// func (node *Node) Int32Slice(name string) ([]int32, bool) {
+// 	nodes := node.FilterName(name)
+// 	if len(nodes) != 1 {
+// 		return nil, false
+// 	}
+// 	properties := nodes[0].Properties
+// 	if len(properties) != 1 {
+// 		return nil, false
+// 	}
+// 	return properties[0].AsInt32Slice()
+// }
 
-func (node *Node) Float64Slice(name string) ([]float64, bool) {
-	nodes := node.FilterName(name)
-	if len(nodes) != 1 {
-		return nil, false
+// func (node *Node) Float64Slice(name string) ([]float64, bool) {
+// 	nodes := node.FilterName(name)
+// 	if len(nodes) != 1 {
+// 		return nil, false
+// 	}
+// 	properties := nodes[0].Properties
+// 	if len(properties) != 1 {
+// 		return nil, false
+// 	}
+// 	return properties[0].AsFloat64Slice()
+// }
+
+func (n Node) GetNode(names ...string) *Node {
+
+	if len(names) == 0 {
+		return &n
 	}
-	properties := nodes[0].Properties
-	if len(properties) != 1 {
-		return nil, false
+
+	for _, c := range n.NestedNodes {
+		if c.Name == names[0] {
+			return c.GetNode(names[1:]...)
+		}
 	}
-	return properties[0].AsFloat64Slice()
+
+	return nil
 }
 
 func (n *Node) String() string {

@@ -8,17 +8,35 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 )
 
+// FBXReader builds an FBX file from a reader
 type FBXReader struct {
 	FBX      *FBX
 	Position int64
 	Error    error
+	Filters  []NodeFilter
+	stack    *NodeStack
 }
 
+// NewReader creates a new reader
 func NewReader() *FBXReader {
-	return &FBXReader{&FBX{}, 0, nil}
+	return &FBXReader{&FBX{}, 0, nil, nil, NewNodeStack()}
+}
+
+func NewReaderWithFilters(filters ...NodeFilter) *FBXReader {
+	return &FBXReader{&FBX{}, 0, nil, filters, NewNodeStack()}
+}
+
+func (fr FBXReader) filter() bool {
+	for _, filter := range fr.Filters {
+		if filter(fr.stack) == false {
+			return false
+		}
+	}
+	return true
 }
 
 func (fr *FBXReader) ReadFrom(r io.Reader) (n int64, err error) {
@@ -78,6 +96,8 @@ func (fr *FBXReader) ReadPropertyListLen(r io.Reader) uint64 {
 
 func (fr *FBXReader) ReadNodeFrom(r io.Reader, top bool) (node *Node) {
 	node = &Node{}
+	fr.stack.push(node)
+	defer fr.stack.pop()
 
 	node.EndOffset = fr.ReadEndOffset(r)
 	if fr.Error != nil {
@@ -110,11 +130,14 @@ func (fr *FBXReader) ReadNodeFrom(r io.Reader, top bool) (node *Node) {
 		fr.Position += int64(i)
 	}
 
-	// if node.IsEmpty() {
-	// 	return
-	// }
-
 	if node.EndOffset == 0 {
+		return
+	}
+
+	if fr.filter() == false {
+		leftToRead := node.EndOffset - uint64(fr.Position)
+		io.CopyN(ioutil.Discard, r, int64(leftToRead))
+		fr.Position += int64(leftToRead)
 		return
 	}
 
@@ -141,12 +164,6 @@ func (fr *FBXReader) ReadNodeFrom(r io.Reader, top bool) (node *Node) {
 		}
 		node.NestedNodes = append(node.NestedNodes, subNode)
 	}
-
-	// if len(node.NestedNodes) > 0 {
-	// 	b := make([]byte, 13)
-	// 	r.Read(b)
-	// 	fr.Position += 13
-	// }
 
 	return node
 }
