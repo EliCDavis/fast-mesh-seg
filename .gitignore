@@ -1,3 +1,4 @@
 *.fbx
 out.txt
 *.exe
+*.obj

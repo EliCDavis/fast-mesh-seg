@@ -1,10 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"os"
 	"time"
+
+	"github.com/EliCDavis/mesh"
+
+	"github.com/EliCDavis/vector"
 )
 
 func check(e error) {
@@ -30,6 +35,22 @@ func loadModel() *FBX {
 	return reader.FBX
 }
 
+func save(mesh mesh.Model, name string) error {
+	defer timeTrack(time.Now(), "Saving Model")
+	f, err := os.Create(name)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	w := bufio.NewWriter(f)
+	err = mesh.Save(w)
+	if err != nil {
+		return err
+	}
+	return w.Flush()
+}
+
 func main() {
 
 	out, err := os.Create("out.txt")
@@ -41,6 +62,45 @@ func main() {
 	for _, c := range fbx.Nodes {
 		expand(out, c)
 	}
+
+	vertice, _ := fbx.GetNode("Objects", "Geometry", "Vertices").Float64Slice()
+	verticeIndexes, _ := fbx.GetNode("Objects", "Geometry", "PolygonVertexIndex").Int32Slice()
+
+	numFaces := len(verticeIndexes) / 3
+	polygons := make([]mesh.Polygon, 0)
+	for f := 0; f < numFaces; f++ {
+		faceIndex := f * 3
+		firstInd := int(verticeIndexes[faceIndex]) * 3
+		secondInd := int(verticeIndexes[faceIndex+1]) * 3
+		wrapInd := (int(verticeIndexes[faceIndex+2])*-1 - 1) * 3
+		points := []vector.Vector3{
+			vector.NewVector3(
+				vertice[firstInd],
+				vertice[firstInd+1],
+				vertice[firstInd+2],
+			),
+			vector.NewVector3(
+				vertice[secondInd],
+				vertice[secondInd+1],
+				vertice[secondInd+2],
+			),
+			vector.NewVector3(
+				vertice[wrapInd],
+				vertice[wrapInd+1],
+				vertice[wrapInd+2],
+			),
+		}
+
+		p, _ := mesh.NewPolygon(
+			points,
+			points,
+		)
+		polygons = append(polygons, p)
+	}
+
+	m, err := mesh.NewModel(polygons)
+	check(err)
+	save(m, "out.obj")
 
 	expand(os.Stdout, fbx.GetNode("Objects", "Geometry"))
 }
