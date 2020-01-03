@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 )
 
 // FBXReader builds an FBX file from a reader
@@ -68,7 +67,6 @@ func (fr *FBXReader) ReadHeaderFrom(r io.Reader) (header *Header) {
 	header = &Header{}
 	var i int
 	i, fr.Error = r.Read(header[:])
-	log.Print(header.String())
 	fr.Position += int64(i)
 	return
 }

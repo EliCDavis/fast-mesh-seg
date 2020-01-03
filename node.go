@@ -45,19 +45,21 @@ func (node *Node) Float64Slice() ([]float64, bool) {
 	return properties[0].AsFloat64Slice()
 }
 
-func (n Node) GetNode(names ...string) *Node {
+func (n Node) GetNodes(names ...string) []*Node {
 
 	if len(names) == 0 {
-		return &n
+		return []*Node{&n}
 	}
+
+	nodes := []*Node{}
 
 	for _, c := range n.NestedNodes {
 		if c.Name == names[0] {
-			return c.GetNode(names[1:]...)
+			nodes = append(nodes, c.GetNodes(names[1:]...)...)
 		}
 	}
 
-	return nil
+	return nodes
 }
 
 func (n *Node) String() string {

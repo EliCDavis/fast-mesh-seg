@@ -23,20 +23,25 @@ func timeTrack(start time.Time, name string) {
 	log.Printf("%s took %s", name, elapsed)
 }
 
-func loadModel() *FBX {
-	defer timeTrack(time.Now(), "Load Model")
-	f, err := os.Open("./dragon_vrip.fbx")
+func loadModel(modelName string) *FBX {
+	defer timeTrack(time.Now(), "Loading Model: "+modelName)
+	f, err := os.Open(modelName)
 	check(err)
 	defer f.Close()
 
-	reader := NewReaderWithFilters(FilterName("Objects/Geometry")) // FilterName("Objects/Geometry")
+	reader := NewReaderWithFilters(
+		EITHER(
+			FilterName("Objects/Geometry/Vertices"),
+			FilterName("Objects/Geometry/PolygonVertexIndex"),
+		),
+	)
 	reader.ReadFrom(f)
 	check(reader.Error)
 	return reader.FBX
 }
 
 func save(mesh mesh.Model, name string) error {
-	defer timeTrack(time.Now(), "Saving Model")
+	defer timeTrack(time.Now(), "Saving Model: "+name)
 	f, err := os.Create(name)
 	if err != nil {
 		return err
@@ -51,58 +56,75 @@ func save(mesh mesh.Model, name string) error {
 	return w.Flush()
 }
 
+// ToModel accumulates all geometry nodes and combines them into a single mesh
+func ToModel(geometryNodes []*Node) mesh.Model {
+	defer timeTrack(time.Now(), "Converting To Internal Model Representation")
+
+	polygons := make([]mesh.Polygon, 0)
+
+	for _, geomNode := range geometryNodes {
+
+		vertice, _ := geomNode.GetNodes("Vertices")[0].Float64Slice()
+		verticeIndexes, _ := geomNode.GetNodes("PolygonVertexIndex")[0].Int32Slice()
+
+		numFaces := len(verticeIndexes) / 3
+		for f := 0; f < numFaces; f++ {
+			faceIndex := f * 3
+			firstInd := int(verticeIndexes[faceIndex]) * 3
+			secondInd := int(verticeIndexes[faceIndex+1]) * 3
+			wrapInd := (int(verticeIndexes[faceIndex+2])*-1 - 1) * 3
+			points := []vector.Vector3{
+				vector.NewVector3(
+					vertice[firstInd],
+					vertice[firstInd+1],
+					vertice[firstInd+2],
+				),
+				vector.NewVector3(
+					vertice[secondInd],
+					vertice[secondInd+1],
+					vertice[secondInd+2],
+				),
+				vector.NewVector3(
+					vertice[wrapInd],
+					vertice[wrapInd+1],
+					vertice[wrapInd+2],
+				),
+			}
+
+			p, _ := mesh.NewPolygon(
+				points,
+				points,
+			)
+			polygons = append(polygons, p)
+		}
+
+	}
+
+	m, err := mesh.NewModel(polygons)
+	check(err)
+
+	return m
+}
+
 func main() {
 
 	out, err := os.Create("out.txt")
 	check(err)
 
-	fbx := loadModel()
+	fbx := loadModel("dragon_vrip.fbx")
 
 	expand(out, fbx.Top)
 	for _, c := range fbx.Nodes {
 		expand(out, c)
 	}
 
-	vertice, _ := fbx.GetNode("Objects", "Geometry", "Vertices").Float64Slice()
-	verticeIndexes, _ := fbx.GetNode("Objects", "Geometry", "PolygonVertexIndex").Int32Slice()
+	geomNodes := fbx.GetNodes("Objects", "Geometry")
 
-	numFaces := len(verticeIndexes) / 3
-	polygons := make([]mesh.Polygon, 0)
-	for f := 0; f < numFaces; f++ {
-		faceIndex := f * 3
-		firstInd := int(verticeIndexes[faceIndex]) * 3
-		secondInd := int(verticeIndexes[faceIndex+1]) * 3
-		wrapInd := (int(verticeIndexes[faceIndex+2])*-1 - 1) * 3
-		points := []vector.Vector3{
-			vector.NewVector3(
-				vertice[firstInd],
-				vertice[firstInd+1],
-				vertice[firstInd+2],
-			),
-			vector.NewVector3(
-				vertice[secondInd],
-				vertice[secondInd+1],
-				vertice[secondInd+2],
-			),
-			vector.NewVector3(
-				vertice[wrapInd],
-				vertice[wrapInd+1],
-				vertice[wrapInd+2],
-			),
-		}
+	save(ToModel(geomNodes), "out.obj")
 
-		p, _ := mesh.NewPolygon(
-			points,
-			points,
-		)
-		polygons = append(polygons, p)
+	for _, g := range geomNodes {
+		expand(os.Stdout, g)
 	}
-
-	m, err := mesh.NewModel(polygons)
-	check(err)
-	save(m, "out.obj")
-
-	expand(os.Stdout, fbx.GetNode("Objects", "Geometry"))
 }
 
 var depth = 0
