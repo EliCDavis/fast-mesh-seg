@@ -9,6 +9,18 @@ WIP
 Why is this is better than using other programs:
 
 * Only loads what FBX nodes are needed for mesh segmentation. Ignores all other fbx data, saving on RAM. 
+* Combines all geometries found in the FBX, always exports only 2 model files (or one if the clipping plane collides with nothing)
+
+## Results
+
+```txt
+2020/01/02 22:26:40 Loading Model: dragon_vrip.fbx took 524.9901ms
+2020/01/02 22:26:41 Splitting model by plane took 564.9936ms
+2020/01/02 22:26:43 Saving Model: retained.obj took 2.6189968s
+2020/01/02 22:26:49 Saving Model: clipped.obj took 5.4730392s
+```
+
+![Results](https://i.imgur.com/QCW2qzq.png)
 
 ## Credits
 

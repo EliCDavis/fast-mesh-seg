@@ -57,10 +57,13 @@ func save(mesh mesh.Model, name string) error {
 }
 
 // ToModel accumulates all geometry nodes and combines them into a single mesh
-func ToModel(geometryNodes []*Node) mesh.Model {
-	defer timeTrack(time.Now(), "Converting To Internal Model Representation")
+func ToModel(geometryNodes []*Node) (mesh.Model, mesh.Model) {
+	defer timeTrack(time.Now(), "Splitting model by plane")
 
-	polygons := make([]mesh.Polygon, 0)
+	clippingPlane := NewPlane(vector.Vector3Zero(), vector.Vector3Forward())
+
+	retainedPolygons := make([]mesh.Polygon, 0)
+	clippedPolygons := make([]mesh.Polygon, 0)
 
 	for _, geomNode := range geometryNodes {
 
@@ -91,19 +94,51 @@ func ToModel(geometryNodes []*Node) mesh.Model {
 				),
 			}
 
+			// d i s t a n c e = Dot ( c l i p p l a n e . N, V [ i ] . p o i n t ) − c l i p p l a n e . c ;
+			aDist := clippingPlane.normal.Dot(points[0])
+			bDist := clippingPlane.normal.Dot(points[1])
+			cDist := clippingPlane.normal.Dot(points[2])
+			pos := 0
+			neg := 0
+
+			if aDist > 0 {
+				pos++
+			} else {
+				neg++
+			}
+
+			if bDist > 0 {
+				pos++
+			} else {
+				neg++
+			}
+
+			if cDist > 0 {
+				pos++
+			} else {
+				neg++
+			}
+
 			p, _ := mesh.NewPolygon(
 				points,
 				points,
 			)
-			polygons = append(polygons, p)
+
+			if pos == 3 {
+				retainedPolygons = append(retainedPolygons, p)
+			}
+
+			if neg == 3 {
+				clippedPolygons = append(clippedPolygons, p)
+			}
 		}
 
 	}
 
-	m, err := mesh.NewModel(polygons)
-	check(err)
+	retained, _ := mesh.NewModel(retainedPolygons)
+	clipped, _ := mesh.NewModel(clippedPolygons)
 
-	return m
+	return retained, clipped
 }
 
 func main() {
@@ -120,7 +155,9 @@ func main() {
 
 	geomNodes := fbx.GetNodes("Objects", "Geometry")
 
-	save(ToModel(geomNodes), "out.obj")
+	retained, clipped := ToModel(geomNodes)
+	save(retained, "retained.obj")
+	save(clipped, "clipped.obj")
 
 	for _, g := range geomNodes {
 		expand(os.Stdout, g)
