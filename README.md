@@ -2,8 +2,6 @@
 
 Meant to take large files (multiple GBs worth / 100million+ tris) and segment them into multiple smaller files for sake of loading them into game engines.
 
-WIP
-
 ## Features
 
 Why is this is better than using other programs:
@@ -11,7 +9,7 @@ Why is this is better than using other programs:
 * Only loads what FBX nodes are needed for mesh segmentation. Ignores all other fbx data, saving on RAM. 
 * Combines all geometries found in the FBX, always exports only 2 model files (or one if the clipping plane collides with nothing)
 
-## Results
+## Current Progress
 
 ```txt
 2020/01/02 22:43:05 Loading Model: dragon_vrip.fbx took 517.0337ms
@@ -21,6 +19,13 @@ Why is this is better than using other programs:
 ```
 
 ![Results](https://i.imgur.com/QCW2qzq.png)
+
+## Roadmap
+
+* [x] Outputting basic splitting of fbx file into multiple models
+* [ ] Recursively Build Octree based on desired polycount threshold
+* [ ] Stream polygons as their unpackaged from geometry instead of reading entire fbx file first.
+* [ ] Feed Poly stream into CUDA
 
 ## Credits
 
