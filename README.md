@@ -14,10 +14,10 @@ Why is this is better than using other programs:
 ## Results
 
 ```txt
-2020/01/02 22:26:40 Loading Model: dragon_vrip.fbx took 524.9901ms
-2020/01/02 22:26:41 Splitting model by plane took 564.9936ms
-2020/01/02 22:26:43 Saving Model: retained.obj took 2.6189968s
-2020/01/02 22:26:49 Saving Model: clipped.obj took 5.4730392s
+2020/01/02 22:43:05 Loading Model: dragon_vrip.fbx took 517.0337ms
+2020/01/02 22:43:05 Splitting model by plane took 454.0025ms
+2020/01/02 22:43:08 Saving Model (287745 tris) as 'retained.obj' took 2.3630315s
+2020/01/02 22:43:13 Saving Model (578630 tris) as 'clipped.obj' took 5.0589994s
 ```
 
 ![Results](https://i.imgur.com/QCW2qzq.png)

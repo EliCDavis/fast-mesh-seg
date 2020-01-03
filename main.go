@@ -41,7 +41,7 @@ func loadModel(modelName string) *FBX {
 }
 
 func save(mesh mesh.Model, name string) error {
-	defer timeTrack(time.Now(), "Saving Model: "+name)
+	defer timeTrack(time.Now(), fmt.Sprintf("Saving Model (%d tris) as '%s'", len(mesh.GetFaces()), name))
 	f, err := os.Create(name)
 	if err != nil {
 		return err
@@ -142,7 +142,6 @@ func ToModel(geometryNodes []*Node) (mesh.Model, mesh.Model) {
 }
 
 func main() {
-
 	out, err := os.Create("out.txt")
 	check(err)
 
@@ -158,10 +157,6 @@ func main() {
 	retained, clipped := ToModel(geomNodes)
 	save(retained, "retained.obj")
 	save(clipped, "clipped.obj")
-
-	for _, g := range geomNodes {
-		expand(os.Stdout, g)
-	}
 }
 
 var depth = 0
