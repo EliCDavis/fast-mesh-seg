@@ -12,6 +12,7 @@ type Node struct {
 	NameLen         uint8
 	Name            string
 	Properties      []*Property
+	ArrayProperties []*ArrayProperty
 	NestedNodes     []*Node
 }
 
@@ -28,21 +29,19 @@ func (node *Node) IsEmpty() bool {
 // Int32Slice treats as the node only has a single property and retrieves it as
 // a Int32Slice
 func (node *Node) Int32Slice() ([]int32, bool) {
-	properties := node.Properties
-	if len(properties) != 1 {
+	if len(node.ArrayProperties) != 1 {
 		return nil, false
 	}
-	return properties[0].AsInt32Slice()
+	return node.ArrayProperties[0].AsInt32Slice(), true
 }
 
 // Float64Slice treats as the node only has a single property and retrieves it
 // as a Float64Slice
 func (node *Node) Float64Slice() ([]float64, bool) {
-	properties := node.Properties
-	if len(properties) != 1 {
+	if len(node.ArrayProperties) != 1 {
 		return nil, false
 	}
-	return properties[0].AsFloat64Slice()
+	return node.ArrayProperties[0].AsFloat64Slice(), true
 }
 
 func (n Node) GetNodes(names ...string) []*Node {

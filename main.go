@@ -56,19 +56,27 @@ func save(mesh mesh.Model, name string) error {
 	return w.Flush()
 }
 
-// ToModel accumulates all geometry nodes and combines them into a single mesh
-func ToModel(geometryNodes []*Node) (mesh.Model, mesh.Model) {
+// SplitByPlane accumulates all geometry nodes and splits them by some plane
+func SplitByPlane(geometryNodes []*Node, clippingPlane Plane) (mesh.Model, mesh.Model) {
 	defer timeTrack(time.Now(), "Splitting model by plane")
-
-	clippingPlane := NewPlane(vector.Vector3Zero(), vector.Vector3Forward())
 
 	retainedPolygons := make([]mesh.Polygon, 0)
 	clippedPolygons := make([]mesh.Polygon, 0)
 
 	for _, geomNode := range geometryNodes {
 
-		vertice, _ := geomNode.GetNodes("Vertices")[0].Float64Slice()
-		verticeIndexes, _ := geomNode.GetNodes("PolygonVertexIndex")[0].Int32Slice()
+		vertexNodes := geomNode.GetNodes("Vertices")
+		if len(vertexNodes) == 0 {
+			continue
+		}
+
+		polyVertexNodes := geomNode.GetNodes("PolygonVertexIndex")
+		if len(polyVertexNodes) == 0 {
+			continue
+		}
+
+		vertice, _ := vertexNodes[0].Float64Slice()
+		verticeIndexes, _ := polyVertexNodes[0].Int32Slice()
 
 		numFaces := len(verticeIndexes) / 3
 		for f := 0; f < numFaces; f++ {
@@ -94,10 +102,9 @@ func ToModel(geometryNodes []*Node) (mesh.Model, mesh.Model) {
 				),
 			}
 
-			// d i s t a n c e = Dot ( c l i p p l a n e . N, V [ i ] . p o i n t ) − c l i p p l a n e . c ;
-			aDist := clippingPlane.normal.Dot(points[0])
-			bDist := clippingPlane.normal.Dot(points[1])
-			cDist := clippingPlane.normal.Dot(points[2])
+			aDist := clippingPlane.normal.Dot(points[0].Sub(clippingPlane.origin))
+			bDist := clippingPlane.normal.Dot(points[1].Sub(clippingPlane.origin))
+			cDist := clippingPlane.normal.Dot(points[2].Sub(clippingPlane.origin))
 			pos := 0
 			neg := 0
 
@@ -141,22 +148,31 @@ func ToModel(geometryNodes []*Node) (mesh.Model, mesh.Model) {
 	return retained, clipped
 }
 
-func main() {
-	out, err := os.Create("out.txt")
-	check(err)
-
-	fbx := loadModel("dragon_vrip.fbx")
-
-	expand(out, fbx.Top)
-	for _, c := range fbx.Nodes {
-		expand(out, c)
-	}
-
+func SplitByPlaneProgram(modelName string, plane Plane) (*FBX, mesh.Model, mesh.Model) {
+	fbx := loadModel(modelName)
 	geomNodes := fbx.GetNodes("Objects", "Geometry")
+	retained, clipped := SplitByPlane(geomNodes, plane)
+	return fbx, retained, clipped
+}
 
-	retained, clipped := ToModel(geomNodes)
-	save(retained, "retained.obj")
-	save(clipped, "clipped.obj")
+func main() {
+	_, retained, clipped := SplitByPlaneProgram("HIB-model.fbx", NewPlane(vector.NewVector3(105.4350, 119.4877, 77.9060), vector.Vector3Up()))
+	log.Printf("Retained Model Polygon Count: %d", len(retained.GetFaces()))
+	log.Printf("Clipped Model Polygon Count: %d", len(clipped.GetFaces()))
+	log.Print(retained.GetCenterOfBoundingBox())
+
+	// out, err := os.Create("out.txt")
+	// check(err)
+
+	// fbx, retained, clipped := SplitByPlaneProgram("dragon_vrip.fbx", NewPlane(vector.Vector3Zero(), vector.Vector3Forward()))
+
+	// expand(out, fbx.Top)
+	// for _, c := range fbx.Nodes {
+	// 	expand(out, c)
+	// }
+
+	// save(retained, "retained.obj")
+	// save(clipped, "clipped.obj")
 }
 
 var depth = 0
@@ -184,15 +200,15 @@ func propertyToString(p *Property) string {
 		return fmt.Sprint(p.AsInt64())
 	}
 
-	if string(p.TypeCode) == "d" {
-		s, _ := p.AsFloat64Slice()
-		return fmt.Sprintf("[float64 array len: %d]", len(s))
-	}
+	// if string(p.TypeCode) == "d" {
+	// 	s, _ := p.AsFloat64Slice()
+	// 	return fmt.Sprintf("[float64 array len: %d]", len(s))
+	// }
 
-	if string(p.TypeCode) == "i" {
-		s, _ := p.AsInt32Slice()
-		return fmt.Sprintf("[int32 array len: %d]", len(s))
-	}
+	// if string(p.TypeCode) == "i" {
+	// 	s, _ := p.AsInt32Slice()
+	// 	return fmt.Sprintf("[int32 array len: %d]", len(s))
+	// }
 
 	return "typecode: " + string(p.TypeCode)
 }
