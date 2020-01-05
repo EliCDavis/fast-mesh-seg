@@ -46,6 +46,11 @@ func (p ArrayProperty) AsInt32Slice() []int32 {
 	if p.Encoding == 0 {
 		buf := bytes.NewReader(p.Data)
 		/*err :=*/ binary.Read(buf, binary.LittleEndian, &data)
+
+		// for i := range data {
+		// 		data[i] = order.Uint32(bs[4*i:])
+		// 	}
+
 	} else {
 		/*err :=*/ p.uncompress(data)
 	}

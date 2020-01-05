@@ -10,7 +10,11 @@ Why this is potentially better than using other programs:
 * Delays uncompressing array-type properties until needed.
 * Combines all geometries found in the FBX, always exports only 2 model files (or one if the clipping plane collides with nothing)
 
-## Current Progress
+## Progress History
+
+### Niave Implementation
+
+Just trying to get something working
 
 ```txt
 2020/01/02 22:43:05 Loading Model: dragon_vrip.fbx took 517.0337ms
@@ -28,7 +32,7 @@ Why this is potentially better than using other programs:
 
 ### Defering Loading Properties until their needed:
 
-You see that loading the FBX is almost instant now, but it takes longer to split the model because we have to now decompress the nodes we need, steps that where originally taken care of during the FBX loading step. 
+You see that loading the FBX is almost instant now for the dragon, but it takes longer to split the model because we have to now decompress the nodes we need, steps that where originally taken care of during the FBX loading step. 
 
 ```txt
 2020/01/04 01:39:34 Loading Model: dragon_vrip.fbx took 8.0032ms
@@ -42,6 +46,28 @@ You see that loading the FBX is almost instant now, but it takes longer to split
 2020/01/04 01:45:52 Splitting model by plane took 32.672s
 2020/01/04 01:45:52 Retained Model Polygon Count: 28562401
 2020/01/04 01:45:52 Clipped Model Polygon Count: 9922739
+```
+
+### Efficiently Interpreting Number Types / Minimizing Array Resizing / SeekReader
+
+Previously, the FBX reader used `binary.Read` method in golang. Doing so required making small readers and having the method use a switch statement to try to determine what number type it was dealing with. Creating these small readers where wasteful since we already have the data loaded, and we already know what the number type is so we don't have to go through a wasteful switch statement. This resulted with the most speadup for the loading of our large model (`HIB-model.fbx`) and spead it up a few seconds.
+
+Minimizing array resizing when splitting the geometry nodes involved creating and re-using larger sized arrays instead of just appending to one each face. This means that we do minimal array resizing but we have to guess the size of the array beforehand because we don't know how many polygons will exist on each side of the clipping plane until we've completed the cutting operation. This resulted in the most amount of speedup (1.5x) for our small model that only has 1 geometry node. This ended up slowing down our model splitting for our big model (the opposite of what we are going for) by 1 second. This is because it has a  large amount of geometry nodes, which means theres a lot of wasted array space I guess. Further investigation and research is required.
+
+```txt
+-> Loading and splitting model by plane took 533.0014ms
+----> Loading Model: dragon_vrip.fbx took 6.036ms
+----> Splitting model by plane took 526.9654ms
+2020/01/04 17:40:50 Retained Model Polygon Count: 287745
+2020/01/04 17:40:50 Clipped Model Polygon Count: 578630
+```
+
+```txt
+-> Loading and splitting model by plane took 2m38.8481157s
+----> Loading Model: HIB-model.fbx took 2m5.1550347s
+----> Splitting model by plane took 33.5160793s
+2020/01/04 17:43:28 Retained Model Polygon Count: 28562401
+2020/01/04 17:43:28 Clipped Model Polygon Count: 9922739
 ```
 
 ![Results](https://i.imgur.com/QCW2qzq.png)

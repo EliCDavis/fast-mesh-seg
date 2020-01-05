@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
 
 	"github.com/EliCDavis/mesh"
 
@@ -18,13 +17,13 @@ func check(e error) {
 	}
 }
 
-func timeTrack(start time.Time, name string) {
-	elapsed := time.Since(start)
-	log.Printf("%s took %s", name, elapsed)
-}
+var timer Timer
 
 func loadModel(modelName string) *FBX {
-	defer timeTrack(time.Now(), "Loading Model: "+modelName)
+	// defer timeTrack(time.Now(), "Loading Model: "+modelName)
+	timer.begin("Loading Model: " + modelName)
+	defer timer.end()
+
 	f, err := os.Open(modelName)
 	check(err)
 	defer f.Close()
@@ -41,7 +40,10 @@ func loadModel(modelName string) *FBX {
 }
 
 func save(mesh mesh.Model, name string) error {
-	defer timeTrack(time.Now(), fmt.Sprintf("Saving Model (%d tris) as '%s'", len(mesh.GetFaces()), name))
+	// defer timeTrack(time.Now(), fmt.Sprintf("Saving Model (%d tris) as '%s'", len(mesh.GetFaces()), name))
+	timer.begin(fmt.Sprintf("Saving Model (%d tris) as '%s'", len(mesh.GetFaces()), name))
+	defer timer.end()
+
 	f, err := os.Create(name)
 	if err != nil {
 		return err
@@ -58,10 +60,17 @@ func save(mesh mesh.Model, name string) error {
 
 // SplitByPlane accumulates all geometry nodes and splits them by some plane
 func SplitByPlane(geometryNodes []*Node, clippingPlane Plane) (mesh.Model, mesh.Model) {
-	defer timeTrack(time.Now(), "Splitting model by plane")
+	timer.begin("Splitting model by plane")
+	defer timer.end()
 
-	retainedPolygons := make([]mesh.Polygon, 0)
-	clippedPolygons := make([]mesh.Polygon, 0)
+	allRetainedPolygons := make([]mesh.Polygon, 0)
+	allClippedPolygons := make([]mesh.Polygon, 0)
+
+	var retainedPolygons []mesh.Polygon
+	retainedPolyIndex := 0
+
+	var clippedPolygons []mesh.Polygon
+	clippedPolyIndex := 0
 
 	for _, geomNode := range geometryNodes {
 
@@ -79,6 +88,15 @@ func SplitByPlane(geometryNodes []*Node, clippingPlane Plane) (mesh.Model, mesh.
 		verticeIndexes, _ := polyVertexNodes[0].Int32Slice()
 
 		numFaces := len(verticeIndexes) / 3
+
+		if len(retainedPolygons) < numFaces {
+			clippedPolygons = make([]mesh.Polygon, numFaces)
+			retainedPolygons = make([]mesh.Polygon, numFaces)
+		}
+
+		retainedPolyIndex = 0
+		clippedPolyIndex = 0
+
 		for f := 0; f < numFaces; f++ {
 			faceIndex := f * 3
 			firstInd := int(verticeIndexes[faceIndex]) * 3
@@ -132,23 +150,28 @@ func SplitByPlane(geometryNodes []*Node, clippingPlane Plane) (mesh.Model, mesh.
 			)
 
 			if pos == 3 {
-				retainedPolygons = append(retainedPolygons, p)
+				retainedPolygons[retainedPolyIndex] = p
+				retainedPolyIndex++
 			}
-
 			if neg == 3 {
-				clippedPolygons = append(clippedPolygons, p)
+				clippedPolygons[clippedPolyIndex] = p
+				clippedPolyIndex++
 			}
 		}
 
+		allRetainedPolygons = append(allRetainedPolygons, retainedPolygons[:retainedPolyIndex]...)
+		allClippedPolygons = append(allClippedPolygons, clippedPolygons[:clippedPolyIndex]...)
 	}
 
-	retained, _ := mesh.NewModel(retainedPolygons)
-	clipped, _ := mesh.NewModel(clippedPolygons)
+	retained, _ := mesh.NewModel(allRetainedPolygons)
+	clipped, _ := mesh.NewModel(allClippedPolygons)
 
 	return retained, clipped
 }
 
 func SplitByPlaneProgram(modelName string, plane Plane) (*FBX, mesh.Model, mesh.Model) {
+	timer.begin("Loading and splitting model by plane")
+	defer timer.end()
 	fbx := loadModel(modelName)
 	geomNodes := fbx.GetNodes("Objects", "Geometry")
 	retained, clipped := SplitByPlane(geomNodes, plane)
@@ -156,15 +179,13 @@ func SplitByPlaneProgram(modelName string, plane Plane) (*FBX, mesh.Model, mesh.
 }
 
 func main() {
-	_, retained, clipped := SplitByPlaneProgram("HIB-model.fbx", NewPlane(vector.NewVector3(105.4350, 119.4877, 77.9060), vector.Vector3Up()))
-	log.Printf("Retained Model Polygon Count: %d", len(retained.GetFaces()))
-	log.Printf("Clipped Model Polygon Count: %d", len(clipped.GetFaces()))
-	log.Print(retained.GetCenterOfBoundingBox())
 
 	// out, err := os.Create("out.txt")
 	// check(err)
 
-	// fbx, retained, clipped := SplitByPlaneProgram("dragon_vrip.fbx", NewPlane(vector.Vector3Zero(), vector.Vector3Forward()))
+	_, retained, clipped := SplitByPlaneProgram("dragon_vrip.fbx", NewPlane(vector.Vector3Zero(), vector.Vector3Forward()))
+	log.Printf("Retained Model Polygon Count: %d", len(retained.GetFaces()))
+	log.Printf("Clipped Model Polygon Count: %d", len(clipped.GetFaces()))
 
 	// expand(out, fbx.Top)
 	// for _, c := range fbx.Nodes {
@@ -173,6 +194,12 @@ func main() {
 
 	// save(retained, "retained.obj")
 	// save(clipped, "clipped.obj")
+
+	_, retained, clipped = SplitByPlaneProgram("HIB-model.fbx", NewPlane(vector.NewVector3(105.4350, 119.4877, 77.9060), vector.Vector3Up()))
+	log.Printf("Retained Model Polygon Count: %d", len(retained.GetFaces()))
+	log.Printf("Clipped Model Polygon Count: %d", len(clipped.GetFaces()))
+	// log.Print(retained.GetCenterOfBoundingBox())
+
 }
 
 var depth = 0
@@ -200,15 +227,23 @@ func propertyToString(p *Property) string {
 		return fmt.Sprint(p.AsInt64())
 	}
 
-	// if string(p.TypeCode) == "d" {
-	// 	s, _ := p.AsFloat64Slice()
-	// 	return fmt.Sprintf("[float64 array len: %d]", len(s))
-	// }
+	return "typecode: " + string(p.TypeCode)
+}
 
-	// if string(p.TypeCode) == "i" {
-	// 	s, _ := p.AsInt32Slice()
-	// 	return fmt.Sprintf("[int32 array len: %d]", len(s))
-	// }
+func arrayPropertyToString(p *ArrayProperty) string {
+	if p == nil {
+		return "nil property"
+	}
+
+	if string(p.TypeCode) == "d" {
+		s := p.AsFloat64Slice()
+		return fmt.Sprintf("[float64 array len: %d]", len(s))
+	}
+
+	if string(p.TypeCode) == "i" {
+		s := p.AsInt32Slice()
+		return fmt.Sprintf("[int32 array len: %d]", len(s))
+	}
 
 	return "typecode: " + string(p.TypeCode)
 }
@@ -226,6 +261,14 @@ func expand(out *os.File, node *Node) {
 		}
 		out.WriteString("---- ")
 		out.WriteString(propertyToString(p) + "\n")
+	}
+
+	for _, p := range node.ArrayProperties {
+		for i := 0; i < depth; i++ {
+			out.WriteString("--")
+		}
+		out.WriteString("---- ")
+		out.WriteString(arrayPropertyToString(p) + "\n")
 	}
 
 	depth++
