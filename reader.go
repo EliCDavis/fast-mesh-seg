@@ -15,15 +15,17 @@ type FBXReader struct {
 	Error    error
 	Filters  []NodeFilter
 	stack    *NodeStack
+	results  chan<- *Node
+	matcher  NodeFilter
 }
 
 // NewReader creates a new reader
 func NewReader() *FBXReader {
-	return &FBXReader{&FBX{}, 0, nil, nil, NewNodeStack()}
+	return &FBXReader{&FBX{}, 0, nil, nil, NewNodeStack(), nil, nil}
 }
 
-func NewReaderWithFilters(filters ...NodeFilter) *FBXReader {
-	return &FBXReader{&FBX{}, 0, nil, filters, NewNodeStack()}
+func NewReaderWithFilters(matcher NodeFilter, results chan<- *Node, filters ...NodeFilter) *FBXReader {
+	return &FBXReader{&FBX{}, 0, nil, filters, NewNodeStack(), results, matcher}
 }
 
 func (fr FBXReader) filter() bool {
@@ -56,6 +58,10 @@ func (fr *FBXReader) ReadFrom(r io.ReadSeeker) (n int64, err error) {
 			break
 		}
 		fr.FBX.Nodes = append(fr.FBX.Nodes, node)
+	}
+
+	if fr.results != nil {
+		close(fr.results)
 	}
 
 	return
@@ -157,6 +163,12 @@ func (fr *FBXReader) ReadNodeFrom(r io.ReadSeeker, top bool) (node *Node) {
 			break
 		}
 		node.NestedNodes = append(node.NestedNodes, subNode)
+	}
+
+	if fr.matcher != nil && fr.results != nil {
+		if fr.matcher(fr.stack) {
+			fr.results <- node
+		}
 	}
 
 	return node

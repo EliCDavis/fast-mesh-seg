@@ -10,7 +10,11 @@ Why this is potentially better than using other programs:
 * Delays uncompressing array-type properties until needed.
 * Combines all geometries found in the FBX, always exports only 2 model files (or one if the clipping plane collides with nothing)
 
-## Progress History
+## Example Output
+
+![Results](https://i.imgur.com/QCW2qzq.png)
+
+## Progress History / Lessons Learned
 
 ### Niave Implementation
 
@@ -70,13 +74,29 @@ Minimizing array resizing when splitting the geometry nodes involved creating an
 2020/01/04 17:43:28 Clipped Model Polygon Count: 9922739
 ```
 
-![Results](https://i.imgur.com/QCW2qzq.png)
+### Streaming Geometry Nodes to Worker Pool
+
+Instead of waiting for the entire FBX file to be read in, we send geomatry nodes immediately after they've been read to a worker pool that pass some matcher function. This means we can start splitting the geometry before we've even finished reading the file, and that splitting is done over multiple threads (the number dependent on the machine the program is being ran on). Doing this spead up both our small file and large file benchmarks. It was a little disapoiting how little the speedup we recieved for the large file (1.08x), and that's probably due to how many small geometry nodes exist within it.
+
+One reason the large file isn't getting that large of a speedup is because with the introduction of channels, there comes an associated communication cost. Because there are a lot of very small geometry nodes, there's a lot of communication overhead for splitting up very easy tasks. I imagine you would experience a much larger speedup with larger geomeetry nodes type files. This issue can hopefully be remedied by batching nodes as a single job instead of sending them one at a time.
+
+```txt
+-> Loading and splitting dragon_vrip.fbx by plane took 523.9953ms
+2020/01/05 00:41:36 Retained Model Polygon Count: 287745
+2020/01/05 00:41:36 Clipped Model Polygon Count: 578630
+```
+
+```txt
+-> Loading and splitting HIB-model.fbx by plane took 2m26.6470021s
+2020/01/05 00:39:39 Retained Model Polygon Count: 28562401
+2020/01/05 00:39:39 Clipped Model Polygon Count: 9922739
+```
 
 ## Roadmap
 
 * [x] Outputting basic splitting of fbx file into multiple models
 * [ ] Recursively Build Octree based on desired polycount threshold
-* [ ] Stream polygons as their unpackaged from geometry instead of reading entire fbx file first.
+* [x] Stream polygons as their unpackaged from geometry instead of reading entire fbx file first.
 * [ ] Feed Poly stream into CUDA
 
 ## Credits

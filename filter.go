@@ -27,3 +27,24 @@ func EITHER(filters ...NodeFilter) NodeFilter {
 		return false
 	}
 }
+
+func MatchStackAndSubNodes(name string, subNodes ...string) NodeFilter {
+	return func(n *NodeStack) bool {
+		if name != n.String() {
+			return false
+		}
+		for _, subName := range subNodes {
+			match := false
+			for _, subNode := range n.data[n.position].NestedNodes {
+				if subNode.Name == subName {
+					match = true
+				}
+			}
+			if match == false {
+				return false
+			}
+		}
+
+		return true
+	}
+}
