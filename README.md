@@ -6,9 +6,9 @@ Meant to take large files (multiple GBs worth / 100million+ tris) and segment th
 
 Why this is potentially better than using other programs:
 
-* Only loads what FBX nodes are needed for mesh segmentation. Ignores all other fbx data, saving on RAM. 
-* Delays uncompressing array-type properties until needed.
-* Combines all geometries found in the FBX, always exports only 2 model files (or one if the clipping plane collides with nothing)
+* Only loads what FBX nodes are needed for mesh segmentation. Ignores all other fbx data, saving on RAM and loading time. 
+* Delays uncompressing array-type properties until needed, uncompression occurs in worker pool.
+* Geometry Nodes are streamed to a worker pool as they are pulled from the file. Splitting the mesh is multithreaded and begins before the FBX file is done being read.
 
 ## Example Output
 
@@ -78,7 +78,7 @@ Minimizing array resizing when splitting the geometry nodes involved creating an
 
 Instead of waiting for the entire FBX file to be read in, we send geomatry nodes immediately after they've been read to a worker pool that pass some matcher function. This means we can start splitting the geometry before we've even finished reading the file, and that splitting is done over multiple threads (the number dependent on the machine the program is being ran on). Doing this spead up both our small file and large file benchmarks. It was a little disapoiting how little the speedup we recieved for the large file (1.08x), and that's probably due to how many small geometry nodes exist within it.
 
-One reason the large file isn't getting that large of a speedup is because with the introduction of channels, there comes an associated communication cost. Because there are a lot of very small geometry nodes, there's a lot of communication overhead for splitting up very easy tasks. I imagine you would experience a much larger speedup with larger geomeetry nodes type files. This issue can hopefully be remedied by batching nodes as a single job instead of sending them one at a time.
+One reason the large file isn't getting that large of a speedup is because with the introduction of channels, there comes an associated communication cost. Because there are a lot of very small geometry nodes (304905 of them), there's a lot of communication overhead for splitting up very easy tasks. I imagine you would experience a much larger speedup with larger geomeetry nodes type files. This issue can hopefully be remedied by batching nodes as a single job instead of sending them one at a time.
 
 ```txt
 -> Loading and splitting dragon_vrip.fbx by plane took 523.9953ms
@@ -92,12 +92,36 @@ One reason the large file isn't getting that large of a speedup is because with 
 2020/01/05 00:39:39 Clipped Model Polygon Count: 9922739
 ```
 
+### Chunking Jobs + More Efficient Node Header Loading
+
+Now that we have multiple workers, we want them to spend as much as their time working instead of communicating. That means we need to give them large jobs that keep them occupied for long times, but also at the same time not keeping them waiting too long for their next job. I have the rearder build a list of nodes and keep up with how large each node is that's read in. As soon as the total size of all collected nodes reach a certain threshold, the list of nodes is sent to a single worker. I found a good threshold to be
+1000000 bytes (~1MB) and to have 3 Workers (my machine only has 4 cores).  These parameters of course are super specific to my machine and the test file being ran. I need to develop a program for creating a variaty of FBX with different properties for proper benchmarking. Overall this dropped the time it took for splitting the larger mesh by 10 whole seconds. The smaller single geometry node file now take a little longer to complete which is expected. During the read process it never breaks the threshold to be sent to a job, and thus is split once the entire FBX file is done being loaded in. Not sure how to remedy this, maybe some how provide the reader with the file size before it begins so it can adjust the size theshold for sening nodes to jobs?
+
+The MAJOR speedup came from benchmarking and viewing the cpu profile output.
+
+![Profiling Output](https://i.imgur.com/yXqwhR6.png)
+
+You can see a majority of the time spent parsing a node is on it's header data (how big it is, how many properties it has, etc). These are just a few simple int32/int64 values that always come in the same exact order and come in every single node. So instead of performing multiple reads per node for it's header, I just perform one single read and construct the values directly from the bytes read in. This resulted in a MASSIVE speed up of 50 seconds (1.6x). I am very happy. I need to explore more places where arrays can easily be reused for reading.
+
+```txt
+-> Loading and splitting dragon_vrip.fbx by plane with 3 workers took 662.1468ms
+2020/01/05 16:42:19 Retained Model Polygon Count: 287745
+2020/01/05 16:42:19 Clipped Model Polygon Count: 578630
+```
+
+```txt
+-> Loading and splitting HIB-model.fbx by plane with 3 workers took 1m25.5735363s
+2020/01/05 16:39:00 Retained Model Polygon Count: 28562401
+2020/01/05 16:39:00 Clipped Model Polygon Count: 9891243
+```
+
 ## Roadmap
 
 * [x] Outputting basic splitting of fbx file into multiple models
 * [ ] Recursively Build Octree based on desired polycount threshold
 * [x] Stream polygons as their unpackaged from geometry instead of reading entire fbx file first.
 * [ ] Feed Poly stream into CUDA
+* [ ] Create program for generating different size FBX with different number of geometry nodes and node sizes.
 
 ## Credits
 

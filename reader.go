@@ -10,22 +10,42 @@ import (
 
 // FBXReader builds an FBX file from a reader
 type FBXReader struct {
-	FBX      *FBX
-	Position int64
-	Error    error
-	Filters  []NodeFilter
-	stack    *NodeStack
-	results  chan<- *Node
-	matcher  NodeFilter
+	FBX                      *FBX
+	Position                 int64
+	Error                    error
+	Filters                  []NodeFilter
+	stack                    *NodeStack
+	results                  chan<- []*Node
+	matcher                  NodeFilter
+	currentResultsBuffer     []*Node
+	currentResultsBufferSize int64
+	nodeHeader               []byte
+	nodeHeaderSize           int
 }
 
 // NewReader creates a new reader
 func NewReader() *FBXReader {
-	return &FBXReader{&FBX{}, 0, nil, nil, NewNodeStack(), nil, nil}
+	return &FBXReader{
+		FBX:      &FBX{},
+		Position: 0,
+		Error:    nil,
+		Filters:  nil,
+		stack:    NewNodeStack(),
+		results:  nil,
+		matcher:  nil,
+	}
 }
 
-func NewReaderWithFilters(matcher NodeFilter, results chan<- *Node, filters ...NodeFilter) *FBXReader {
-	return &FBXReader{&FBX{}, 0, nil, filters, NewNodeStack(), results, matcher}
+func NewReaderWithFilters(matcher NodeFilter, results chan<- []*Node, filters ...NodeFilter) *FBXReader {
+	return &FBXReader{
+		FBX:      &FBX{},
+		Position: 0,
+		Error:    nil,
+		Filters:  filters,
+		stack:    NewNodeStack(),
+		results:  results,
+		matcher:  matcher,
+	}
 }
 
 func (fr FBXReader) filter() bool {
@@ -44,6 +64,12 @@ func (fr *FBXReader) ReadFrom(r io.ReadSeeker) (n int64, err error) {
 		return
 	}
 
+	fr.nodeHeaderSize = 25 // 8 + 8 + 8 + 1
+	if fr.FBX.Header.Version() < 7500 {
+		fr.nodeHeaderSize = 13 // 4 + 4 + 4 + 1
+	}
+	fr.nodeHeader = make([]byte, fr.nodeHeaderSize)
+
 	fr.FBX.Top = fr.ReadNodeFrom(r, true)
 	if fr.Error != nil {
 		return
@@ -60,6 +86,10 @@ func (fr *FBXReader) ReadFrom(r io.ReadSeeker) (n int64, err error) {
 		fr.FBX.Nodes = append(fr.FBX.Nodes, node)
 	}
 
+	// if fr.currentResultsBufferSize > 0 {
+	// 	fr.results <- fr.currentResultsBuffer
+	// }
+
 	if fr.results != nil {
 		close(fr.results)
 	}
@@ -67,33 +97,8 @@ func (fr *FBXReader) ReadFrom(r io.ReadSeeker) (n int64, err error) {
 	return
 }
 
-func (fr *FBXReader) ReadHeaderFrom(r io.Reader) (header *Header) {
-	header = &Header{}
-	var i int
-	i, fr.Error = r.Read(header[:])
-	fr.Position += int64(i)
-	return
-}
-
-func (fr *FBXReader) ReadEndOffset(r io.Reader) uint64 {
-	if fr.FBX.Header.Version() >= 7500 {
-		return fr.readUint64(r)
-	}
-	return uint64(fr.readUint32(r))
-}
-
-func (fr *FBXReader) ReadNumProperties(r io.Reader) uint64 {
-	if fr.FBX.Header.Version() >= 7500 {
-		return fr.readUint64(r)
-	}
-	return uint64(fr.readUint32(r))
-}
-
-func (fr *FBXReader) ReadPropertyListLen(r io.Reader) uint64 {
-	if fr.FBX.Header.Version() >= 7500 {
-		return fr.readUint64(r)
-	}
-	return uint64(fr.readUint32(r))
+func (fr *FBXReader) ReadHeaderFrom(r io.Reader) *Header {
+	return NewHeader(fr.read(r, 27))
 }
 
 func (fr *FBXReader) ReadNodeFrom(r io.ReadSeeker, top bool) (node *Node) {
@@ -101,25 +106,33 @@ func (fr *FBXReader) ReadNodeFrom(r io.ReadSeeker, top bool) (node *Node) {
 	fr.stack.push(node)
 	defer fr.stack.pop()
 
-	node.EndOffset = fr.ReadEndOffset(r)
+	fr.readInto(r, fr.nodeHeader)
 	if fr.Error != nil {
 		return
 	}
 
-	node.NumProperties = fr.ReadNumProperties(r)
-	if fr.Error != nil {
-		return
+	if fr.FBX.Header.Version() >= 7500 {
+		node.EndOffset = uint64(fr.nodeHeader[0]) | uint64(fr.nodeHeader[1])<<8 | uint64(fr.nodeHeader[2])<<16 |
+			uint64(fr.nodeHeader[3])<<24 | uint64(fr.nodeHeader[4])<<32 | uint64(fr.nodeHeader[5])<<40 |
+			uint64(fr.nodeHeader[6])<<48 | uint64(fr.nodeHeader[7])<<56
+
+		node.NumProperties = uint64(fr.nodeHeader[8]) | uint64(fr.nodeHeader[9])<<8 | uint64(fr.nodeHeader[10])<<16 |
+			uint64(fr.nodeHeader[11])<<24 | uint64(fr.nodeHeader[12])<<32 | uint64(fr.nodeHeader[13])<<40 |
+			uint64(fr.nodeHeader[14])<<48 | uint64(fr.nodeHeader[15])<<56
+
+		node.PropertyListLen = uint64(fr.nodeHeader[16]) | uint64(fr.nodeHeader[17])<<8 | uint64(fr.nodeHeader[18])<<16 |
+			uint64(fr.nodeHeader[19])<<24 | uint64(fr.nodeHeader[20])<<32 | uint64(fr.nodeHeader[21])<<40 |
+			uint64(fr.nodeHeader[22])<<48 | uint64(fr.nodeHeader[23])<<56
+
+		node.NameLen = fr.nodeHeader[24]
+	} else {
+		node.EndOffset = uint64(uint32(fr.nodeHeader[0]) | uint32(fr.nodeHeader[1])<<8 | uint32(fr.nodeHeader[2])<<16 | uint32(fr.nodeHeader[3])<<24)
+		node.NumProperties = uint64(uint32(fr.nodeHeader[4]) | uint32(fr.nodeHeader[5])<<8 | uint32(fr.nodeHeader[6])<<16 | uint32(fr.nodeHeader[7])<<24)
+		node.PropertyListLen = uint64(uint32(fr.nodeHeader[8]) | uint32(fr.nodeHeader[9])<<8 | uint32(fr.nodeHeader[10])<<16 | uint32(fr.nodeHeader[11])<<24)
+		node.NameLen = fr.nodeHeader[12]
 	}
 
-	node.PropertyListLen = fr.ReadPropertyListLen(r)
-	if fr.Error != nil {
-		return
-	}
-
-	node.NameLen = fr.readUint8(r)
-	if fr.Error != nil {
-		return
-	}
+	size := node.EndOffset - uint64(fr.Position)
 
 	if node.NameLen > 0 {
 		bb := fr.read(r, int(node.NameLen))
@@ -167,11 +180,23 @@ func (fr *FBXReader) ReadNodeFrom(r io.ReadSeeker, top bool) (node *Node) {
 
 	if fr.matcher != nil && fr.results != nil {
 		if fr.matcher(fr.stack) {
-			fr.results <- node
+			fr.addNodeToResultsChannel(node, int64(size))
 		}
 	}
 
 	return node
+}
+
+func (fr *FBXReader) addNodeToResultsChannel(n *Node, size int64) {
+	fr.currentResultsBufferSize += size
+	fr.currentResultsBuffer = append(fr.currentResultsBuffer, n)
+
+	if fr.currentResultsBufferSize > 1000000 {
+		fr.results <- fr.currentResultsBuffer
+		fr.currentResultsBufferSize = 0
+		fr.currentResultsBuffer = make([]*Node, 0)
+	}
+
 }
 
 func (fr *FBXReader) ReadPropertyFrom(r io.Reader, node *Node) {
@@ -340,6 +365,12 @@ func (fr *FBXReader) read(r io.Reader, bytes int) []byte {
 	i, fr.Error = r.Read(b)
 	fr.Position += int64(i)
 	return b
+}
+
+func (fr *FBXReader) readInto(r io.Reader, b []byte) {
+	var i int
+	i, fr.Error = r.Read(b)
+	fr.Position += int64(i)
 }
 
 func (fr *FBXReader) readString(r io.Reader) []byte {

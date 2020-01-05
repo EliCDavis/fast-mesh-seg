@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sync"
 
 	"github.com/EliCDavis/mesh"
 
@@ -20,7 +19,7 @@ func check(e error) {
 
 var timer Timer
 
-func loadModel(modelName string, jobs chan<- *Node) *FBX {
+func loadModel(modelName string, jobs chan<- []*Node) *FBX {
 	f, err := os.Open(modelName)
 	check(err)
 	defer f.Close()
@@ -147,28 +146,30 @@ func SplitByPlane(geomNode *Node, clippingPlane Plane) ([]mesh.Polygon, []mesh.P
 	return retainedPolygons[:retainedPolyIndex], clippedPolygons[:clippedPolyIndex]
 }
 
-func worker(id int, plane Plane, jobs <-chan *Node, results chan<- Result, wg *sync.WaitGroup) {
+func worker(id int, plane Plane, jobs <-chan []*Node, results chan<- Result) {
+	allRetainedPolygons := make([]mesh.Polygon, 0)
+	allClippedPolygons := make([]mesh.Polygon, 0)
+
 	for j := range jobs {
-		retained, clipped := SplitByPlane(j, plane)
-		results <- Result{clipped: clipped, retained: retained}
+		for _, n := range j {
+			retained, clipped := SplitByPlane(n, plane)
+			allRetainedPolygons = append(allRetainedPolygons, retained...)
+			allClippedPolygons = append(allClippedPolygons, clipped...)
+		}
 	}
-	wg.Done()
+	results <- Result{clipped: allClippedPolygons, retained: allRetainedPolygons}
 }
 
-func SplitByPlaneProgram(modelName string, plane Plane) (*FBX, mesh.Model, mesh.Model) {
-	timer.begin(fmt.Sprintf("Loading and splitting %s by plane", modelName))
+func SplitByPlaneProgram(modelName string, plane Plane, workers int) (*FBX, mesh.Model, mesh.Model) {
+	timer.begin(fmt.Sprintf("Loading and splitting %s by plane with %d workers", modelName, workers))
 	defer timer.end()
 
-	var wg sync.WaitGroup
-	jobs := make(chan *Node, 10000)
+	jobs := make(chan []*Node, 10000)
 	results := make(chan Result, 10000)
-	numWorkers := 4
-
-	wg.Add(numWorkers)
 
 	// start workers before attempting to load model
-	for w := 0; w < numWorkers; w++ {
-		go worker(w, plane, jobs, results, &wg)
+	for w := 0; w < workers; w++ {
+		go worker(w, plane, jobs, results)
 	}
 
 	go loadModel(modelName, jobs)
@@ -176,12 +177,8 @@ func SplitByPlaneProgram(modelName string, plane Plane) (*FBX, mesh.Model, mesh.
 	allRetainedPolygons := make([]mesh.Polygon, 0)
 	allClippedPolygons := make([]mesh.Polygon, 0)
 
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	for r := range results {
+	for i := 0; i < workers; i++ {
+		r := <-results
 		allRetainedPolygons = append(allRetainedPolygons, r.retained...)
 		allClippedPolygons = append(allClippedPolygons, r.clipped...)
 	}
@@ -189,8 +186,6 @@ func SplitByPlaneProgram(modelName string, plane Plane) (*FBX, mesh.Model, mesh.
 	retained, _ := mesh.NewModel(allRetainedPolygons)
 	clipped, _ := mesh.NewModel(allClippedPolygons)
 
-	// geomNodes := fbx.GetNodes("Objects", "Geometry")
-	// retained, clipped := SplitByPlane(geomNodes, plane)
 	return nil, retained, clipped
 }
 
@@ -199,7 +194,7 @@ func main() {
 	// out, err := os.Create("out.txt")
 	// check(err)
 
-	// _, retained, clipped := SplitByPlaneProgram("dragon_vrip.fbx", NewPlane(vector.Vector3Zero(), vector.Vector3Forward()))
+	// _, retained, clipped := SplitByPlaneProgram("dragon_vrip.fbx", NewPlane(vector.Vector3Zero(), vector.Vector3Forward()), 3)
 	// log.Printf("Retained Model Polygon Count: %d", len(retained.GetFaces()))
 	// log.Printf("Clipped Model Polygon Count: %d", len(clipped.GetFaces()))
 
@@ -211,10 +206,10 @@ func main() {
 	// save(retained, "retained.obj")
 	// save(clipped, "clipped.obj")
 
-	_, retained, clipped := SplitByPlaneProgram("HIB-model.fbx", NewPlane(vector.NewVector3(105.4350, 119.4877, 77.9060), vector.Vector3Up()))
+	_, retained, clipped := SplitByPlaneProgram("HIB-model.fbx", NewPlane(vector.NewVector3(105.4350, 119.4877, 77.9060), vector.Vector3Up()), 3)
 	log.Printf("Retained Model Polygon Count: %d", len(retained.GetFaces()))
 	log.Printf("Clipped Model Polygon Count: %d", len(clipped.GetFaces()))
-	log.Print(retained.GetCenterOfBoundingBox())
+	// log.Print(retained.GetCenterOfBoundingBox())
 
 }
 
