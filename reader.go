@@ -70,17 +70,17 @@ func (fr *FBXReader) ReadFrom(r io.ReadSeeker) (n int64, err error) {
 	}
 	fr.nodeHeader = make([]byte, fr.nodeHeaderSize)
 
-	fr.FBX.Top = fr.ReadNodeFrom(r, true)
+	fr.FBX.Top, _ = fr.ReadNodeFrom(r, true)
 	if fr.Error != nil {
 		return
 	}
 
 	for {
-		node := fr.ReadNodeFrom(r, false)
+		node, empty := fr.ReadNodeFrom(r, false)
 		if fr.Error != nil {
 			break
 		}
-		if node.IsEmpty() {
+		if empty {
 			break
 		}
 		fr.FBX.Nodes = append(fr.FBX.Nodes, node)
@@ -101,18 +101,20 @@ func (fr *FBXReader) ReadHeaderFrom(r io.Reader) *Header {
 	return NewHeader(fr.read(r, 27))
 }
 
-func (fr *FBXReader) ReadNodeFrom(r io.ReadSeeker, top bool) (node *Node) {
-	node = &Node{}
+// ReadNodeFrom builds a node from the reader and returns true if the node was empty
+func (fr *FBXReader) ReadNodeFrom(r io.ReadSeeker, top bool) (*Node, bool) {
+	node := &Node{}
 	fr.stack.push(node)
 	defer fr.stack.pop()
 
 	fr.readInto(r, fr.nodeHeader)
 	if fr.Error != nil {
-		return
+		return nil, true
 	}
 
+	var endOffset uint64
 	if fr.FBX.Header.Version() >= 7500 {
-		node.EndOffset = uint64(fr.nodeHeader[0]) | uint64(fr.nodeHeader[1])<<8 | uint64(fr.nodeHeader[2])<<16 |
+		endOffset = uint64(fr.nodeHeader[0]) | uint64(fr.nodeHeader[1])<<8 | uint64(fr.nodeHeader[2])<<16 |
 			uint64(fr.nodeHeader[3])<<24 | uint64(fr.nodeHeader[4])<<32 | uint64(fr.nodeHeader[5])<<40 |
 			uint64(fr.nodeHeader[6])<<48 | uint64(fr.nodeHeader[7])<<56
 
@@ -126,53 +128,53 @@ func (fr *FBXReader) ReadNodeFrom(r io.ReadSeeker, top bool) (node *Node) {
 
 		node.NameLen = fr.nodeHeader[24]
 	} else {
-		node.EndOffset = uint64(uint32(fr.nodeHeader[0]) | uint32(fr.nodeHeader[1])<<8 | uint32(fr.nodeHeader[2])<<16 | uint32(fr.nodeHeader[3])<<24)
+		endOffset = uint64(uint32(fr.nodeHeader[0]) | uint32(fr.nodeHeader[1])<<8 | uint32(fr.nodeHeader[2])<<16 | uint32(fr.nodeHeader[3])<<24)
 		node.NumProperties = uint64(uint32(fr.nodeHeader[4]) | uint32(fr.nodeHeader[5])<<8 | uint32(fr.nodeHeader[6])<<16 | uint32(fr.nodeHeader[7])<<24)
 		node.PropertyListLen = uint64(uint32(fr.nodeHeader[8]) | uint32(fr.nodeHeader[9])<<8 | uint32(fr.nodeHeader[10])<<16 | uint32(fr.nodeHeader[11])<<24)
 		node.NameLen = fr.nodeHeader[12]
 	}
 
-	size := node.EndOffset - uint64(fr.Position)
+	size := endOffset - uint64(fr.Position)
 
 	if node.NameLen > 0 {
 		bb := fr.read(r, int(node.NameLen))
 		if fr.Error != nil {
-			return
+			return nil, false
 		}
 		node.Name = string(bb)
 	}
 
-	if node.EndOffset == 0 {
-		return
+	if endOffset == 0 {
+		return node, true
 	}
 
 	if fr.filter() == false {
-		leftToRead := node.EndOffset - uint64(fr.Position)
+		leftToRead := endOffset - uint64(fr.Position)
 
 		r.Seek(int64(leftToRead), io.SeekCurrent)
 
 		fr.Position += int64(leftToRead)
-		return
+		return node, false
 	}
 
 	for np := uint64(0); np < node.NumProperties; np++ {
 		fr.ReadPropertyFrom(r, node)
 		if fr.Error != nil {
-			return
+			return node, false
 		}
 	}
 
 	for {
-		if fr.Position >= int64(node.EndOffset) {
+		if fr.Position >= int64(endOffset) {
 			break
 		}
 
-		subNode := fr.ReadNodeFrom(r, false)
+		subNode, empty := fr.ReadNodeFrom(r, false)
 		if fr.Error != nil {
 			break
 		}
 
-		if subNode.IsEmpty() {
+		if empty {
 			break
 		}
 		node.NestedNodes = append(node.NestedNodes, subNode)
@@ -184,7 +186,7 @@ func (fr *FBXReader) ReadNodeFrom(r io.ReadSeeker, top bool) (node *Node) {
 		}
 	}
 
-	return node
+	return node, false
 }
 
 func (fr *FBXReader) addNodeToResultsChannel(n *Node, size int64) {
@@ -373,12 +375,19 @@ func (fr *FBXReader) readInto(r io.Reader, b []byte) {
 	fr.Position += int64(i)
 }
 
+var stringReadReuse = []byte{0, 0, 0, 0}
+
 func (fr *FBXReader) readString(r io.Reader) []byte {
-	len := fr.readUint32(r)
-	if fr.Error != nil {
-		return nil
-	}
-	return fr.read(r, int(len))
+	// len := fr.readUint32(r)
+	// if fr.Error != nil {
+	// 	return nil
+	// }
+
+	// b := fr.read(r, 4)
+	// return binary.LittleEndian.Uint32(b)
+
+	fr.readInto(r, stringReadReuse)
+	return fr.read(r, int(binary.LittleEndian.Uint32(stringReadReuse)))
 }
 
 func (fr *FBXReader) readBytes(r io.Reader) []byte {

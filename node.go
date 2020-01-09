@@ -6,7 +6,6 @@ import (
 )
 
 type Node struct {
-	EndOffset       uint64
 	NumProperties   uint64
 	PropertyListLen uint64
 	NameLen         uint8
@@ -14,17 +13,43 @@ type Node struct {
 	Properties      []*Property
 	ArrayProperties []*ArrayProperty
 	NestedNodes     []*Node
+	Length          uint64
 }
 
-func (node *Node) IsEmpty() bool {
-	if node.EndOffset == 0 &&
-		node.NumProperties == 0 &&
-		node.PropertyListLen == 0 &&
-		node.NameLen == 0 {
-		return true
+// NewNode creates a new node and calculates some properties required to qrite to file
+func NewNode(name string, properties []*Property, arrayProperties []*ArrayProperty, nestedNodes []*Node) *Node {
+	var propertyLength uint64
+
+	for _, p := range properties {
+		propertyLength += p.Size()
 	}
-	return false
+
+	for _, p := range arrayProperties {
+		propertyLength += p.Size()
+	}
+
+	var nestedLength uint64
+	for _, n := range nestedNodes {
+		if n == nil {
+			continue
+		}
+		nestedLength += n.Length
+	}
+
+	return &Node{
+		Name:            name,
+		NameLen:         uint8(len(name)),
+		NumProperties:   uint64(len(properties) + len(arrayProperties)),
+		PropertyListLen: propertyLength,
+		Length:          nestedLength + propertyLength + uint64(len(name)) + 25, // 8 + 8 + 8 + 1
+	}
 }
+
+// PropertyInfo looks at all properties contained within the node and computes
+// how much space it takes up
+// func (node Node) PropertyInfo() (int64, int64, []byte) {
+
+// }
 
 // Int32Slice treats as the node only has a single property and retrieves it as
 // a Int32Slice

@@ -16,6 +16,15 @@ type ArrayProperty struct {
 	CompressedLength uint32
 }
 
+// Size returns how much space the property would take up in an FBX
+func (p *ArrayProperty) Size() uint64 {
+	// 13 =   4 (array length)
+	//      + 4 (encoding)
+	//      + 4 (compressed length)
+	//      + 1  typecode byte
+	return uint64(len(p.Data)) + 13
+}
+
 // AsFloat32Slice attempts to parse the buffer as an array of 32bit floats
 func (p ArrayProperty) AsFloat32Slice() []float32 {
 	data := make([]float32, p.ArrayLength)

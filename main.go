@@ -209,7 +209,7 @@ func main() {
 	_, retained, clipped := SplitByPlaneProgram("HIB-model.fbx", NewPlane(vector.NewVector3(105.4350, 119.4877, 77.9060), vector.Vector3Up()), 3)
 	log.Printf("Retained Model Polygon Count: %d", len(retained.GetFaces()))
 	log.Printf("Clipped Model Polygon Count: %d", len(clipped.GetFaces()))
-	// log.Print(retained.GetCenterOfBoundingBox())
+	log.Print(retained.GetCenterOfBoundingBox())
 
 }
 

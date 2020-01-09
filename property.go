@@ -12,6 +12,18 @@ type Property struct {
 	Data     []byte
 }
 
+// Size returns how much space the property would take up in an FBX
+func (p *Property) Size() uint64 {
+	size := uint64(len(p.Data)) + 1 // +1 comes from the typecode byte
+
+	// Strings and byte arrays have 4 bytes that represent the size of the
+	// string/[]byte
+	if p.TypeCode == 'S' || p.TypeCode == 'R' {
+		size += 4
+	}
+	return size
+}
+
 // AsString interprets the byte data as a string
 func (p *Property) AsString() string {
 	return string(p.Data)
