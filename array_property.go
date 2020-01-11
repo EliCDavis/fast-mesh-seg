@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
+	"io"
 )
 
 // ArrayProperty contains the byte data and type of property to a specific
@@ -23,6 +24,34 @@ func (p *ArrayProperty) Size() uint64 {
 	//      + 4 (compressed length)
 	//      + 1  typecode byte
 	return uint64(len(p.Data)) + 13
+}
+
+func (p ArrayProperty) Write(w io.Writer) error {
+	_, err := w.Write([]byte{p.TypeCode})
+	if err != nil {
+		return err
+	}
+
+	err = binary.Write(w, binary.LittleEndian, p.ArrayLength)
+	if err != nil {
+		return err
+	}
+
+	err = binary.Write(w, binary.LittleEndian, p.Encoding)
+	if err != nil {
+		return err
+	}
+
+	err = binary.Write(w, binary.LittleEndian, p.CompressedLength)
+	if err != nil {
+		return err
+	}
+
+	_, err = w.Write(p.Data)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // AsFloat32Slice attempts to parse the buffer as an array of 32bit floats

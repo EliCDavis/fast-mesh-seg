@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -16,7 +18,7 @@ type Node struct {
 	Length          uint64
 }
 
-// NewNode creates a new node and calculates some properties required to qrite to file
+// NewNode creates a new node and calculates some properties required to write to file
 func NewNode(name string, properties []*Property, arrayProperties []*ArrayProperty, nestedNodes []*Node) *Node {
 	var propertyLength uint64
 
@@ -37,12 +39,87 @@ func NewNode(name string, properties []*Property, arrayProperties []*ArrayProper
 	}
 
 	return &Node{
-		Name:            name,
-		NameLen:         uint8(len(name)),
 		NumProperties:   uint64(len(properties) + len(arrayProperties)),
 		PropertyListLen: propertyLength,
+		NameLen:         uint8(len(name)),
+		Name:            name,
+		Properties:      properties,
+		ArrayProperties: arrayProperties,
+		NestedNodes:     nestedNodes,
 		Length:          nestedLength + propertyLength + uint64(len(name)) + 25, // 8 + 8 + 8 + 1
 	}
+}
+
+// NewNodeSingleProperty creates a new node that only has one property
+func NewNodeSingleProperty(name string, property *Property) *Node {
+	return NewNode(name, []*Property{property}, nil, nil)
+}
+
+// NewNodeInt32 creates a new node with a single int32 property
+func NewNodeInt32(name string, i int32) *Node {
+	return NewNode(name, []*Property{NewPropertyInt32(i)}, nil, nil)
+}
+
+// NewNodeString creates a new node with a single string property
+func NewNodeString(name string, s string) *Node {
+	return NewNode(name, []*Property{NewPropertyString(s)}, nil, nil)
+}
+
+// NewNodeParent creates a node who only has children node, no properties
+func NewNodeParent(name string, children []*Node) *Node {
+	return NewNode(name, nil, nil, children)
+}
+
+func (node Node) Write(writer io.Writer, currentOffset uint64) (uint64, error) {
+	err := binary.Write(writer, binary.LittleEndian, node.Length+currentOffset)
+	if err != nil {
+		return 0, err
+	}
+
+	err = binary.Write(writer, binary.LittleEndian, node.NumProperties)
+	if err != nil {
+		return 0, err
+	}
+
+	err = binary.Write(writer, binary.LittleEndian, node.PropertyListLen)
+	if err != nil {
+		return 0, err
+	}
+
+	err = binary.Write(writer, binary.LittleEndian, node.NameLen)
+	if err != nil {
+		return 0, err
+	}
+
+	err = binary.Write(writer, binary.LittleEndian, node.Name)
+	if err != nil {
+		return 0, err
+	}
+
+	for _, p := range node.ArrayProperties {
+		err := p.Write(writer)
+		if err != nil {
+			return 0, nil
+		}
+	}
+
+	for _, p := range node.Properties {
+		err := p.Write(writer)
+		if err != nil {
+			return 0, nil
+		}
+	}
+
+	offsetSofar := currentOffset + 25 + uint64(node.NameLen) + node.PropertyListLen
+	for _, p := range node.NestedNodes {
+		offset, err := p.Write(writer, offsetSofar)
+		if err != nil {
+			return 0, nil
+		}
+		offsetSofar += offset
+	}
+
+	return node.Length + currentOffset, nil
 }
 
 // PropertyInfo looks at all properties contained within the node and computes

@@ -4,12 +4,31 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 )
 
 // Property contains the byte data and type of property to a specific node
 type Property struct {
 	TypeCode byte
 	Data     []byte
+}
+
+// NewPropertyInt32 creates a property that holds data for an Int32
+func NewPropertyInt32(p int32) *Property {
+	buf := new(bytes.Buffer)
+	binary.Write(buf, binary.LittleEndian, p)
+	return &Property{
+		TypeCode: 'I',
+		Data:     buf.Bytes(),
+	}
+}
+
+// NewPropertyString creates a property that holds data for a string
+func NewPropertyString(s string) *Property {
+	return &Property{
+		TypeCode: 'S',
+		Data:     []byte(s),
+	}
 }
 
 // Size returns how much space the property would take up in an FBX
@@ -22,6 +41,26 @@ func (p *Property) Size() uint64 {
 		size += 4
 	}
 	return size
+}
+
+func (p Property) Write(w io.Writer) error {
+	_, err := w.Write([]byte{p.TypeCode})
+	if err != nil {
+		return err
+	}
+
+	if p.TypeCode == 'S' || p.TypeCode == 'R' {
+		err = binary.Write(w, binary.LittleEndian, uint32(len(p.Data)))
+		if err != nil {
+			return err
+		}
+	}
+
+	_, err = w.Write(p.Data)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // AsString interprets the byte data as a string

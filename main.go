@@ -19,7 +19,7 @@ func check(e error) {
 
 var timer Timer
 
-func loadModel(modelName string, jobs chan<- []*Node) *FBX {
+func loadModel(modelName string, jobs chan<- []*Node, fbx chan<- *FBX) {
 	f, err := os.Open(modelName)
 	check(err)
 	defer f.Close()
@@ -27,14 +27,14 @@ func loadModel(modelName string, jobs chan<- []*Node) *FBX {
 	reader := NewReaderWithFilters(
 		MatchStackAndSubNodes("Objects/Geometry", "Vertices", "PolygonVertexIndex"),
 		jobs,
-		EITHER(
-			FilterName("Objects/Geometry/Vertices"),
-			FilterName("Objects/Geometry/PolygonVertexIndex"),
-		),
+		// EITHER(
+		// 	FilterName("Objects/Geometry/Vertices"),
+		// 	FilterName("Objects/Geometry/PolygonVertexIndex"),
+		// ),
 	)
 	reader.ReadFrom(f)
 	check(reader.Error)
-	return reader.FBX
+	fbx <- reader.FBX
 }
 
 func save(mesh mesh.Model, name string) error {
@@ -165,20 +165,21 @@ func SplitByPlaneProgram(modelName string, plane Plane, workers int) (*FBX, mesh
 	defer timer.end()
 
 	jobs := make(chan []*Node, 10000)
-	results := make(chan Result, 10000)
+	workerOutput := make(chan Result, 10000)
+	finalFBX := make(chan *FBX)
 
 	// start workers before attempting to load model
 	for w := 0; w < workers; w++ {
-		go worker(w, plane, jobs, results)
+		go worker(w, plane, jobs, workerOutput)
 	}
 
-	go loadModel(modelName, jobs)
+	go loadModel(modelName, jobs, finalFBX)
 
 	allRetainedPolygons := make([]mesh.Polygon, 0)
 	allClippedPolygons := make([]mesh.Polygon, 0)
 
 	for i := 0; i < workers; i++ {
-		r := <-results
+		r := <-workerOutput
 		allRetainedPolygons = append(allRetainedPolygons, r.retained...)
 		allClippedPolygons = append(allClippedPolygons, r.clipped...)
 	}
@@ -186,30 +187,30 @@ func SplitByPlaneProgram(modelName string, plane Plane, workers int) (*FBX, mesh
 	retained, _ := mesh.NewModel(allRetainedPolygons)
 	clipped, _ := mesh.NewModel(allClippedPolygons)
 
-	return nil, retained, clipped
+	return <-finalFBX, retained, clipped
 }
 
 func main() {
 
-	// out, err := os.Create("out.txt")
-	// check(err)
+	out, err := os.Create("out.txt")
+	check(err)
 
-	// _, retained, clipped := SplitByPlaneProgram("dragon_vrip.fbx", NewPlane(vector.Vector3Zero(), vector.Vector3Forward()), 3)
-	// log.Printf("Retained Model Polygon Count: %d", len(retained.GetFaces()))
-	// log.Printf("Clipped Model Polygon Count: %d", len(clipped.GetFaces()))
+	fbx, retained, clipped := SplitByPlaneProgram("dragon_vrip.fbx", NewPlane(vector.Vector3Zero(), vector.Vector3Forward()), 3)
+	log.Printf("Retained Model Polygon Count: %d", len(retained.GetFaces()))
+	log.Printf("Clipped Model Polygon Count: %d", len(clipped.GetFaces()))
 
-	// expand(out, fbx.Top)
-	// for _, c := range fbx.Nodes {
-	// 	expand(out, c)
-	// }
+	expand(out, fbx.Top)
+	for _, c := range fbx.Nodes {
+		expand(out, c)
+	}
 
 	// save(retained, "retained.obj")
 	// save(clipped, "clipped.obj")
 
-	_, retained, clipped := SplitByPlaneProgram("HIB-model.fbx", NewPlane(vector.NewVector3(105.4350, 119.4877, 77.9060), vector.Vector3Up()), 3)
-	log.Printf("Retained Model Polygon Count: %d", len(retained.GetFaces()))
-	log.Printf("Clipped Model Polygon Count: %d", len(clipped.GetFaces()))
-	log.Print(retained.GetCenterOfBoundingBox())
+	// _, retained, clipped := SplitByPlaneProgram("HIB-model.fbx", NewPlane(vector.NewVector3(105.4350, 119.4877, 77.9060), vector.Vector3Up()), 3)
+	// log.Printf("Retained Model Polygon Count: %d", len(retained.GetFaces()))
+	// log.Printf("Clipped Model Polygon Count: %d", len(clipped.GetFaces()))
+	// log.Print(retained.GetCenterOfBoundingBox())
 
 }
 
@@ -224,18 +225,18 @@ func propertyToString(p *Property) string {
 		if s == "" {
 			return "[Empty String]"
 		}
-		return s
+		return "S: " + s
 	}
 	if string(p.TypeCode) == "I" {
-		return fmt.Sprint(p.AsInt32())
+		return "I: " + fmt.Sprint(p.AsInt32())
 	}
 
 	if string(p.TypeCode) == "D" {
-		return fmt.Sprint(p.AsFloat64())
+		return "D: " + fmt.Sprint(p.AsFloat64())
 	}
 
 	if string(p.TypeCode) == "L" {
-		return fmt.Sprint(p.AsInt64())
+		return "L: " + fmt.Sprint(p.AsInt64())
 	}
 
 	return "typecode: " + string(p.TypeCode)
