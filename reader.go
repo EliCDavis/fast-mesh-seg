@@ -70,13 +70,13 @@ func (fr *FBXReader) ReadFrom(r io.ReadSeeker) (n int64, err error) {
 	}
 	fr.nodeHeader = make([]byte, fr.nodeHeaderSize)
 
-	fr.FBX.Top, _ = fr.ReadNodeFrom(r, true)
+	fr.FBX.Top, _ = fr.ReadNodeFrom(r)
 	if fr.Error != nil {
 		return
 	}
 
 	for {
-		node, empty := fr.ReadNodeFrom(r, false)
+		node, empty := fr.ReadNodeFrom(r)
 		if fr.Error != nil {
 			break
 		}
@@ -102,7 +102,7 @@ func (fr *FBXReader) ReadHeaderFrom(r io.Reader) *Header {
 }
 
 // ReadNodeFrom builds a node from the reader and returns true if the node was empty
-func (fr *FBXReader) ReadNodeFrom(r io.ReadSeeker, top bool) (*Node, bool) {
+func (fr *FBXReader) ReadNodeFrom(r io.ReadSeeker) (*Node, bool) {
 	node := &Node{}
 	fr.stack.push(node)
 	defer fr.stack.pop()
@@ -169,7 +169,7 @@ func (fr *FBXReader) ReadNodeFrom(r io.ReadSeeker, top bool) (*Node, bool) {
 			break
 		}
 
-		subNode, empty := fr.ReadNodeFrom(r, false)
+		subNode, empty := fr.ReadNodeFrom(r)
 		if fr.Error != nil {
 			break
 		}

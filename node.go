@@ -55,6 +55,18 @@ func NewNodeSingleProperty(name string, property *Property) *Node {
 	return NewNode(name, []*Property{property}, nil, nil)
 }
 
+func NewNodeSingleArrayProperty(name string, property *ArrayProperty) *Node {
+	return NewNode(name, nil, []*ArrayProperty{property}, nil)
+}
+
+func NewNodeInt32Slice(name string, i []int32) *Node {
+	return NewNodeSingleArrayProperty(name, NewArrayPropertyInt32Slice(i))
+}
+
+func NewNodeFloat64Slice(name string, i []float64) *Node {
+	return NewNodeSingleArrayProperty(name, NewArrayPropertyFloat64Slice(i))
+}
+
 // NewNodeInt32 creates a new node with a single int32 property
 func NewNodeInt32(name string, i int32) *Node {
 	return NewNode(name, []*Property{NewPropertyInt32(i)}, nil, nil)
@@ -66,12 +78,12 @@ func NewNodeString(name string, s string) *Node {
 }
 
 // NewNodeParent creates a node who only has children node, no properties
-func NewNodeParent(name string, children []*Node) *Node {
+func NewNodeParent(name string, children ...*Node) *Node {
 	return NewNode(name, nil, nil, children)
 }
 
 func (node Node) Write(writer io.Writer, currentOffset uint64) (uint64, error) {
-	err := binary.Write(writer, binary.LittleEndian, node.Length+currentOffset)
+	err := binary.Write(writer, binary.LittleEndian, uint64(node.Length+currentOffset))
 	if err != nil {
 		return 0, err
 	}
@@ -91,7 +103,7 @@ func (node Node) Write(writer io.Writer, currentOffset uint64) (uint64, error) {
 		return 0, err
 	}
 
-	err = binary.Write(writer, binary.LittleEndian, node.Name)
+	_, err = writer.Write([]byte(node.Name))
 	if err != nil {
 		return 0, err
 	}
@@ -116,7 +128,7 @@ func (node Node) Write(writer io.Writer, currentOffset uint64) (uint64, error) {
 		if err != nil {
 			return 0, nil
 		}
-		offsetSofar += offset
+		offsetSofar = offset
 	}
 
 	return node.Length + currentOffset, nil

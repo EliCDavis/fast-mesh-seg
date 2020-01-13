@@ -17,6 +17,30 @@ type ArrayProperty struct {
 	CompressedLength uint32
 }
 
+func NewArrayPropertyInt32Slice(p []int32) *ArrayProperty {
+	buf := new(bytes.Buffer)
+	binary.Write(buf, binary.LittleEndian, p)
+	return &ArrayProperty{
+		TypeCode:         'i',
+		Data:             buf.Bytes(),
+		ArrayLength:      uint32(len(p)),
+		Encoding:         0,
+		CompressedLength: 0,
+	}
+}
+
+func NewArrayPropertyFloat64Slice(p []float64) *ArrayProperty {
+	buf := new(bytes.Buffer)
+	binary.Write(buf, binary.LittleEndian, p)
+	return &ArrayProperty{
+		TypeCode:         'd',
+		Data:             buf.Bytes(),
+		ArrayLength:      uint32(len(p)),
+		Encoding:         0,
+		CompressedLength: 0,
+	}
+}
+
 // Size returns how much space the property would take up in an FBX
 func (p *ArrayProperty) Size() uint64 {
 	// 13 =   4 (array length)

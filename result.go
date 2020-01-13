@@ -1,10 +1,6 @@
 package main
 
-import (
-	"github.com/EliCDavis/mesh"
-)
-
-type Result struct {
-	clipped  []mesh.Polygon
-	retained []mesh.Polygon
+type WorkerResult struct {
+	clipped  []*Node
+	retained []*Node
 }

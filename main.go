@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"os"
 
@@ -56,10 +57,22 @@ func save(mesh mesh.Model, name string) error {
 	return w.Flush()
 }
 
+func markPoly(current byte, new byte) byte {
+	if current == 0 {
+		return new
+	}
+	if current != new {
+		return 3
+	}
+	return new
+}
+
+func WrapToIndex(i int32) int32 {
+	return i*-1 - 1
+}
+
 // SplitByPlane accumulates all geometry nodes and splits them by some plane
-func SplitByPlane(geomNode *Node, clippingPlane Plane) ([]mesh.Polygon, []mesh.Polygon) {
-	// timer.begin("Splitting model by plane")
-	// defer timer.end()
+func SplitByPlane(geomNode *Node, clippingPlane Plane) (*Node, *Node) {
 
 	vertexNodes := geomNode.GetNodes("Vertices")
 	if len(vertexNodes) == 0 {
@@ -74,13 +87,15 @@ func SplitByPlane(geomNode *Node, clippingPlane Plane) ([]mesh.Polygon, []mesh.P
 	vertice, _ := vertexNodes[0].Float64Slice()
 	verticeIndexes, _ := polyVertexNodes[0].Int32Slice()
 
+	// marked 1 if it's retained, 2 if it's clipped, 3 if it's in both.
+	// eventually those marked 3 will disapear as I have to create new polys
+	// for a proper split by plane.
+	vertMarks := make([]byte, len(vertice))
+	vertexPolyIndexMarks := make([]byte, len(verticeIndexes))
+
 	numFaces := len(verticeIndexes) / 3
 
-	clippedPolygons := make([]mesh.Polygon, numFaces)
-	clippedPolyIndex := 0
-	retainedPolygons := make([]mesh.Polygon, numFaces)
-	retainedPolyIndex := 0
-
+	// Mark which tris belong in retained or clipped
 	for f := 0; f < numFaces; f++ {
 		faceIndex := f * 3
 		firstInd := int(verticeIndexes[faceIndex]) * 3
@@ -128,44 +143,144 @@ func SplitByPlane(geomNode *Node, clippingPlane Plane) ([]mesh.Polygon, []mesh.P
 			neg++
 		}
 
-		p, _ := mesh.NewPolygon(
-			points,
-			points,
-		)
-
 		if pos == 3 {
-			retainedPolygons[retainedPolyIndex] = p
-			retainedPolyIndex++
+			vertexPolyIndexMarks[faceIndex] = markPoly(vertexPolyIndexMarks[faceIndex], 1)
+			vertexPolyIndexMarks[faceIndex+1] = markPoly(vertexPolyIndexMarks[faceIndex+1], 1)
+			vertexPolyIndexMarks[faceIndex+2] = markPoly(vertexPolyIndexMarks[faceIndex+2], 1)
+
+			vertMarks[firstInd] = markPoly(vertMarks[firstInd], 1)
+			vertMarks[firstInd+1] = markPoly(vertMarks[firstInd+1], 1)
+			vertMarks[firstInd+2] = markPoly(vertMarks[firstInd+2], 1)
+			vertMarks[secondInd] = markPoly(vertMarks[secondInd], 1)
+			vertMarks[secondInd+1] = markPoly(vertMarks[secondInd+1], 1)
+			vertMarks[secondInd+2] = markPoly(vertMarks[secondInd+2], 1)
+			vertMarks[wrapInd] = markPoly(vertMarks[wrapInd], 1)
+			vertMarks[wrapInd+1] = markPoly(vertMarks[wrapInd+1], 1)
+			vertMarks[wrapInd+2] = markPoly(vertMarks[wrapInd+2], 1)
 		}
 		if neg == 3 {
-			clippedPolygons[clippedPolyIndex] = p
-			clippedPolyIndex++
+			vertexPolyIndexMarks[faceIndex] = markPoly(vertexPolyIndexMarks[faceIndex], 2)
+			vertexPolyIndexMarks[faceIndex+1] = markPoly(vertexPolyIndexMarks[faceIndex+1], 2)
+			vertexPolyIndexMarks[faceIndex+2] = markPoly(vertexPolyIndexMarks[faceIndex+2], 2)
+
+			vertMarks[firstInd] = markPoly(vertMarks[firstInd], 2)
+			vertMarks[firstInd+1] = markPoly(vertMarks[firstInd+1], 2)
+			vertMarks[firstInd+2] = markPoly(vertMarks[firstInd+2], 2)
+			vertMarks[secondInd] = markPoly(vertMarks[secondInd], 2)
+			vertMarks[secondInd+1] = markPoly(vertMarks[secondInd+1], 2)
+			vertMarks[secondInd+2] = markPoly(vertMarks[secondInd+2], 2)
+			vertMarks[wrapInd] = markPoly(vertMarks[wrapInd], 2)
+			vertMarks[wrapInd+1] = markPoly(vertMarks[wrapInd+1], 2)
+			vertMarks[wrapInd+2] = markPoly(vertMarks[wrapInd+2], 2)
 		}
 	}
 
-	return retainedPolygons[:retainedPolyIndex], clippedPolygons[:clippedPolyIndex]
+	clippedVertexes := make([]float64, 0)
+	clippedVertexOffsets := make([]int32, len(vertice)/3)
+	curClippedOffset := 0
+
+	retainedVertexes := make([]float64, 0)
+	retainedVertexOffsets := make([]int32, len(vertice)/3)
+	curRetainedOffset := 0
+
+	numPoints := len(vertMarks) / 3
+
+	for p := 0; p < numPoints; p++ {
+		clippedVertexOffsets[p] = int32(curClippedOffset)
+		retainedVertexOffsets[p] = int32(curRetainedOffset)
+
+		startingVertIndex := p * 3
+		mark := vertMarks[startingVertIndex]
+		if mark == 0 {
+			curClippedOffset++
+			curRetainedOffset++
+		}
+
+		if mark == 1 {
+			curClippedOffset++
+			retainedVertexes = append(retainedVertexes, vertice[startingVertIndex], vertice[startingVertIndex+1], vertice[startingVertIndex+2])
+		}
+
+		if mark == 2 {
+			curRetainedOffset++
+			clippedVertexes = append(clippedVertexes, vertice[startingVertIndex], vertice[startingVertIndex+1], vertice[startingVertIndex+2])
+		}
+
+		if mark == 3 {
+			retainedVertexes = append(retainedVertexes, vertice[startingVertIndex], vertice[startingVertIndex+1], vertice[startingVertIndex+2])
+			clippedVertexes = append(clippedVertexes, vertice[startingVertIndex], vertice[startingVertIndex+1], vertice[startingVertIndex+2])
+		}
+
+	}
+
+	clippedPolyVertexIndices := make([]int32, 0)
+	retainedPolyVertexIndices := make([]int32, 0)
+
+	for f := 0; f < numFaces; f++ {
+		faceIndex := f * 3
+		mark := vertexPolyIndexMarks[faceIndex]
+
+		if mark == 1 || mark == 3 {
+			offsetOne := retainedVertexOffsets[verticeIndexes[faceIndex]]
+			offsetTwo := retainedVertexOffsets[verticeIndexes[faceIndex+1]]
+			offsetThree := retainedVertexOffsets[WrapToIndex(verticeIndexes[faceIndex+2])]
+			retainedPolyVertexIndices = append(retainedPolyVertexIndices, verticeIndexes[faceIndex]-offsetOne, verticeIndexes[faceIndex+1]-offsetTwo, verticeIndexes[faceIndex+2]+offsetThree)
+			continue
+		}
+
+		if mark == 2 || mark == 3 {
+			offsetOne := clippedVertexOffsets[verticeIndexes[faceIndex]]
+			offsetTwo := clippedVertexOffsets[verticeIndexes[faceIndex+1]]
+			offsetThree := clippedVertexOffsets[WrapToIndex(verticeIndexes[faceIndex+2])]
+			clippedPolyVertexIndices = append(clippedPolyVertexIndices, verticeIndexes[faceIndex]-offsetOne, verticeIndexes[faceIndex+1]-offsetTwo, verticeIndexes[faceIndex+2]+offsetThree)
+		}
+	}
+
+	retainedNode := NewNodeParent(
+		"Geometry",
+		NewNodeInt32Slice("PolygonVertexIndex", retainedPolyVertexIndices),
+		NewNodeFloat64Slice("Vertices", retainedVertexes),
+	)
+
+	log.Printf("Retained: %d", len(retainedPolyVertexIndices)/3)
+	log.Printf("clipped: %d", len(clippedPolyVertexIndices)/3)
+
+	clippedNode := NewNodeParent(
+		"Geometry",
+		NewNodeInt32Slice("PolygonVertexIndex", clippedPolyVertexIndices),
+		NewNodeFloat64Slice("Vertices", clippedVertexes),
+	)
+
+	return retainedNode, clippedNode
 }
 
-func worker(id int, plane Plane, jobs <-chan []*Node, results chan<- Result) {
-	allRetainedPolygons := make([]mesh.Polygon, 0)
-	allClippedPolygons := make([]mesh.Polygon, 0)
+func worker(id int, plane Plane, jobs <-chan []*Node, results chan<- WorkerResult) {
+	allRetainedPolygons := make([]*Node, 0)
+	allClippedPolygons := make([]*Node, 0)
 
 	for j := range jobs {
 		for _, n := range j {
 			retained, clipped := SplitByPlane(n, plane)
-			allRetainedPolygons = append(allRetainedPolygons, retained...)
-			allClippedPolygons = append(allClippedPolygons, clipped...)
+			allRetainedPolygons = append(allRetainedPolygons, retained)
+			allClippedPolygons = append(allClippedPolygons, clipped)
 		}
 	}
-	results <- Result{clipped: allClippedPolygons, retained: allRetainedPolygons}
+	results <- WorkerResult{clipped: allClippedPolygons, retained: allRetainedPolygons}
 }
 
-func SplitByPlaneProgram(modelName string, plane Plane, workers int) (*FBX, mesh.Model, mesh.Model) {
+// SplitByPlaneProgram loads in a FBX model and splits it
+func SplitByPlaneProgram(
+	modelName string,
+	plane Plane,
+	workers int,
+	retained io.Writer,
+	clipped io.Writer,
+) *FBX {
 	timer.begin(fmt.Sprintf("Loading and splitting %s by plane with %d workers", modelName, workers))
 	defer timer.end()
 
 	jobs := make(chan []*Node, 10000)
-	workerOutput := make(chan Result, 10000)
+	workerOutput := make(chan WorkerResult, 10000)
 	finalFBX := make(chan *FBX)
 
 	// start workers before attempting to load model
@@ -175,8 +290,13 @@ func SplitByPlaneProgram(modelName string, plane Plane, workers int) (*FBX, mesh
 
 	go loadModel(modelName, jobs, finalFBX)
 
-	allRetainedPolygons := make([]mesh.Polygon, 0)
-	allClippedPolygons := make([]mesh.Polygon, 0)
+	retainedWriter, err := NewWriter(retained)
+	check(err)
+	clippedWriter, err := NewWriter(clipped)
+	check(err)
+
+	allRetainedPolygons := make([]*Node, 0)
+	allClippedPolygons := make([]*Node, 0)
 
 	for i := 0; i < workers; i++ {
 		r := <-workerOutput
@@ -184,23 +304,59 @@ func SplitByPlaneProgram(modelName string, plane Plane, workers int) (*FBX, mesh
 		allClippedPolygons = append(allClippedPolygons, r.clipped...)
 	}
 
-	retained, _ := mesh.NewModel(allRetainedPolygons)
-	clipped, _ := mesh.NewModel(allClippedPolygons)
+	retainedWriter.WriteNode(NewNodeParent("Objects", allRetainedPolygons...))
+	clippedWriter.WriteNode(NewNodeParent("Objects", allClippedPolygons...))
 
-	return <-finalFBX, retained, clipped
+	if retainedWriter.err != nil {
+		log.Printf("Error writing to retained: %s", retainedWriter.err.Error())
+	}
+
+	if clippedWriter.err != nil {
+		log.Printf("Error writing to clipped: %s", clippedWriter.err.Error())
+	}
+
+	// retained, _ := mesh.NewModel(allRetainedPolygons)
+	// clipped, _ := mesh.NewModel(allClippedPolygons)
+
+	return <-finalFBX
+}
+
+func step1(f string) *FBX {
+	retainedOut, err := os.Create("retained.fbx")
+	check(err)
+	defer retainedOut.Close()
+
+	clippedOut, err := os.Create("clipped.fbx")
+	check(err)
+	defer clippedOut.Close()
+
+	return SplitByPlaneProgram("dragon_vrip.fbx", NewPlane(vector.Vector3Zero(), vector.Vector3Forward()), 3, retainedOut, clippedOut)
 }
 
 func main() {
 
 	out, err := os.Create("out.txt")
 	check(err)
+	defer out.Close()
 
-	fbx, retained, clipped := SplitByPlaneProgram("dragon_vrip.fbx", NewPlane(vector.Vector3Zero(), vector.Vector3Forward()), 3)
-	log.Printf("Retained Model Polygon Count: %d", len(retained.GetFaces()))
-	log.Printf("Clipped Model Polygon Count: %d", len(clipped.GetFaces()))
+	// log.Printf("Retained Model Polygon Count: %d", len(retained.GetFaces()))
+	// log.Printf("Clipped Model Polygon Count: %d", len(clipped.GetFaces()))
 
-	expand(out, fbx.Top)
-	for _, c := range fbx.Nodes {
+	// fbx := step1("dragon_vrip.fbx")
+	// expand(out, fbx.Top)
+	// for _, c := range fbx.Nodes {
+	// 	expand(out, c)
+	// }
+
+	f, err := os.Open("retained.fbx")
+	check(err)
+	defer f.Close()
+
+	reader := NewReader()
+	reader.ReadFrom(f)
+	check(reader.Error)
+	expand(out, reader.FBX.Top)
+	for _, c := range reader.FBX.Nodes {
 		expand(out, c)
 	}
 

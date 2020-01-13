@@ -57,10 +57,8 @@ func (p Property) Write(w io.Writer) error {
 	}
 
 	_, err = w.Write(p.Data)
-	if err != nil {
-		return err
-	}
-	return nil
+
+	return err
 }
 
 // AsString interprets the byte data as a string
