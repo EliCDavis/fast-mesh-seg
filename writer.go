@@ -10,6 +10,7 @@ type Writer struct {
 	w             io.Writer
 	currentOffset uint64
 	err           error
+	complete      bool
 }
 
 // NewWriter creates a new writer and immediately writes the FBX header and
@@ -31,6 +32,7 @@ func NewWriter(w io.Writer) (Writer, error) {
 		w:             w,
 		currentOffset: uint64(n),
 		err:           nil,
+		complete:      false,
 	}
 
 	if err != nil {
@@ -56,7 +58,7 @@ func NewWriter(w io.Writer) (Writer, error) {
 
 // WriteNode writes a node to the writer, and returns true if you can continue writing
 func (w *Writer) WriteNode(n *Node) bool {
-	if w.err != nil {
+	if w.err != nil || w.complete {
 		return false
 	}
 
@@ -67,4 +69,21 @@ func (w *Writer) WriteNode(n *Node) bool {
 	}
 	w.currentOffset = newOffset
 	return true
+}
+
+func (w *Writer) Complete() error {
+	if w.err != nil || w.complete {
+		return w.err
+	}
+	n, err := w.w.Write([]byte{
+		0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0,
+	})
+
+	w.currentOffset += uint64(n)
+	w.err = err
+	return w.err
 }

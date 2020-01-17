@@ -291,8 +291,11 @@ func SplitByPlaneProgram(
 	go loadModel(modelName, jobs, finalFBX)
 
 	retainedWriter, err := NewWriter(retained)
+	defer retainedWriter.Complete()
 	check(err)
+
 	clippedWriter, err := NewWriter(clipped)
+	defer clippedWriter.Complete()
 	check(err)
 
 	allRetainedPolygons := make([]*Node, 0)
@@ -330,7 +333,8 @@ func step1(f string) *FBX {
 	check(err)
 	defer clippedOut.Close()
 
-	return SplitByPlaneProgram("dragon_vrip.fbx", NewPlane(vector.Vector3Zero(), vector.Vector3Forward()), 3, retainedOut, clippedOut)
+	fbx := SplitByPlaneProgram("dragon_vrip.fbx", NewPlane(vector.Vector3Zero(), vector.Vector3Forward()), 3, retainedOut, clippedOut)
+	return fbx
 }
 
 func main() {
@@ -342,11 +346,11 @@ func main() {
 	// log.Printf("Retained Model Polygon Count: %d", len(retained.GetFaces()))
 	// log.Printf("Clipped Model Polygon Count: %d", len(clipped.GetFaces()))
 
-	// fbx := step1("dragon_vrip.fbx")
-	// expand(out, fbx.Top)
-	// for _, c := range fbx.Nodes {
-	// 	expand(out, c)
-	// }
+	fbx := step1("dragon_vrip.fbx")
+	expand(out, fbx.Top)
+	for _, c := range fbx.Nodes {
+		expand(out, c)
+	}
 
 	f, err := os.Open("retained.fbx")
 	check(err)

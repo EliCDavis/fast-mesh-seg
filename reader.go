@@ -20,7 +20,6 @@ type FBXReader struct {
 	currentResultsBuffer     []*Node
 	currentResultsBufferSize int64
 	nodeHeader               []byte
-	nodeHeaderSize           int
 }
 
 // NewReader creates a new reader
@@ -60,15 +59,15 @@ func (fr FBXReader) filter() bool {
 func (fr *FBXReader) ReadFrom(r io.ReadSeeker) (n int64, err error) {
 
 	fr.FBX.Header = fr.ReadHeaderFrom(r)
-	if err != nil {
+	if fr.Error != nil {
 		return
 	}
 
-	fr.nodeHeaderSize = 25 // 8 + 8 + 8 + 1
+	nodeHeaderSize := 25 // 8 + 8 + 8 + 1
 	if fr.FBX.Header.Version() < 7500 {
-		fr.nodeHeaderSize = 13 // 4 + 4 + 4 + 1
+		nodeHeaderSize = 13 // 4 + 4 + 4 + 1
 	}
-	fr.nodeHeader = make([]byte, fr.nodeHeaderSize)
+	fr.nodeHeader = make([]byte, nodeHeaderSize)
 
 	fr.FBX.Top, _ = fr.ReadNodeFrom(r)
 	if fr.Error != nil {

@@ -158,6 +158,13 @@ func (node *Node) Float64Slice() ([]float64, bool) {
 	return node.ArrayProperties[0].AsFloat64Slice(), true
 }
 
+func (node *Node) StringProperty() (string, bool) {
+	if len(node.Properties) != 1 {
+		return "", false
+	}
+	return node.Properties[0].AsString(), true
+}
+
 func (n Node) GetNodes(names ...string) []*Node {
 
 	if len(names) == 0 {
