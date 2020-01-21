@@ -1,6 +1,6 @@
 package main
 
 type WorkerResult struct {
-	clipped  []*Node
-	retained []*Node
+	clipped  []Diff
+	retained []Diff
 }

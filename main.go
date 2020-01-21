@@ -72,7 +72,7 @@ func WrapToIndex(i int32) int32 {
 }
 
 // SplitByPlane accumulates all geometry nodes and splits them by some plane
-func SplitByPlane(geomNode *Node, clippingPlane Plane) (*Node, *Node) {
+func SplitByPlane(geomNode *Node, clippingPlane Plane) ([]Diff, []Diff) {
 
 	vertexNodes := geomNode.GetNodes("Vertices")
 	if len(vertexNodes) == 0 {
@@ -86,6 +86,8 @@ func SplitByPlane(geomNode *Node, clippingPlane Plane) (*Node, *Node) {
 
 	vertice, _ := vertexNodes[0].Float64Slice()
 	verticeIndexes, _ := polyVertexNodes[0].Int32Slice()
+
+	log.Println(len(verticeIndexes))
 
 	// marked 1 if it's retained, 2 if it's clipped, 3 if it's in both.
 	// eventually those marked 3 will disapear as I have to create new polys
@@ -236,33 +238,49 @@ func SplitByPlane(geomNode *Node, clippingPlane Plane) (*Node, *Node) {
 		}
 	}
 
-	retainedNode := NewNodeParent(
-		"Geometry",
-		NewNodeInt32Slice("PolygonVertexIndex", retainedPolyVertexIndices),
-		NewNodeFloat64Slice("Vertices", retainedVertexes),
-	)
+	// retainedNode := NewNode(
+	// 	"Geometry",
+	// 	[]*Property{
+	// 		NewPropertyInt64(1),
+	// 		NewPropertyString("Mesh"),
+	// 	},
+	// 	nil,
+	// 	[]*Node{
+	// 		NewNodeInt32Slice("PolygonVertexIndex", verticeIndexes),
+	// 		NewNodeFloat64Slice("Vertices", vertice),
+	// 	},
+	// )
 
 	log.Printf("Retained: %d", len(retainedPolyVertexIndices)/3)
 	log.Printf("clipped: %d", len(clippedPolyVertexIndices)/3)
 
-	clippedNode := NewNodeParent(
-		"Geometry",
-		NewNodeInt32Slice("PolygonVertexIndex", clippedPolyVertexIndices),
-		NewNodeFloat64Slice("Vertices", clippedVertexes),
-	)
+	log.Println(len(verticeIndexes))
 
-	return retainedNode, clippedNode
+	// clippedNode := NewNodeParent(
+	// 	"Geometry",
+	// 	NewNodeInt32Slice("PolygonVertexIndex", clippedPolyVertexIndices),
+	// 	NewNodeFloat64Slice("Vertices", clippedVertexes),
+	// )
+
+	return []Diff{
+		// NewArrayPropertyDiff(vertexNodes[0].id, NewArrayPropertyFloat64CompressedSlice(vertice)),
+		// NewArrayPropertyDiff(polyVertexNodes[0].id, NewArrayPropertyInt32CompressedSlice(verticeIndexes)),
+		},
+		[]Diff{
+		// NewArrayPropertyDiff(vertexNodes[0].id, NewArrayPropertyFloat64CompressedSlice(clippedVertexes)),
+		// NewArrayPropertyDiff(polyVertexNodes[0].id, NewArrayPropertyInt32CompressedSlice(clippedPolyVertexIndices)),
+		}
 }
 
 func worker(id int, plane Plane, jobs <-chan []*Node, results chan<- WorkerResult) {
-	allRetainedPolygons := make([]*Node, 0)
-	allClippedPolygons := make([]*Node, 0)
+	allRetainedPolygons := make([]Diff, 0)
+	allClippedPolygons := make([]Diff, 0)
 
 	for j := range jobs {
 		for _, n := range j {
 			retained, clipped := SplitByPlane(n, plane)
-			allRetainedPolygons = append(allRetainedPolygons, retained)
-			allClippedPolygons = append(allClippedPolygons, clipped)
+			allRetainedPolygons = append(allRetainedPolygons, retained...)
+			allClippedPolygons = append(allClippedPolygons, clipped...)
 		}
 	}
 	results <- WorkerResult{clipped: allClippedPolygons, retained: allRetainedPolygons}
@@ -290,16 +308,8 @@ func SplitByPlaneProgram(
 
 	go loadModel(modelName, jobs, finalFBX)
 
-	retainedWriter, err := NewWriter(retained)
-	defer retainedWriter.Complete()
-	check(err)
-
-	clippedWriter, err := NewWriter(clipped)
-	defer clippedWriter.Complete()
-	check(err)
-
-	allRetainedPolygons := make([]*Node, 0)
-	allClippedPolygons := make([]*Node, 0)
+	allRetainedPolygons := make([]Diff, 0)
+	allClippedPolygons := make([]Diff, 0)
 
 	for i := 0; i < workers; i++ {
 		r := <-workerOutput
@@ -307,21 +317,29 @@ func SplitByPlaneProgram(
 		allClippedPolygons = append(allClippedPolygons, r.clipped...)
 	}
 
-	retainedWriter.WriteNode(NewNodeParent("Objects", allRetainedPolygons...))
-	clippedWriter.WriteNode(NewNodeParent("Objects", allClippedPolygons...))
+	fbx := <-finalFBX
 
-	if retainedWriter.err != nil {
-		log.Printf("Error writing to retained: %s", retainedWriter.err.Error())
+	// retainedWriter.WriteNode(NewNodeParent("Objects", allRetainedPolygons...))
+	// clippedWriter.WriteNode(NewNodeParent("Objects", allClippedPolygons...))
+
+	retainedWriter := NewPatchWriter(fbx, allRetainedPolygons)
+	clippedWriter := NewPatchWriter(fbx, allClippedPolygons)
+
+	_, retErr := retainedWriter.Write(retained)
+	_, clipErr := clippedWriter.Write(clipped)
+
+	if retErr != nil {
+		log.Printf("Error writing to retained: %s", retErr.Error())
 	}
 
-	if clippedWriter.err != nil {
-		log.Printf("Error writing to clipped: %s", clippedWriter.err.Error())
+	if clipErr != nil {
+		log.Printf("Error writing to clipped: %s", clipErr.Error())
 	}
 
 	// retained, _ := mesh.NewModel(allRetainedPolygons)
 	// clipped, _ := mesh.NewModel(allClippedPolygons)
 
-	return <-finalFBX
+	return fbx
 }
 
 func step1(f string) *FBX {
@@ -413,6 +431,9 @@ func arrayPropertyToString(p *ArrayProperty) string {
 	}
 
 	if string(p.TypeCode) == "i" {
+		fmt.Printf("[int32 array len: %d]", len(p.AsInt32Slice()))
+		fmt.Printf("[int32 array len: %d]", len(p.AsInt32Slice()))
+		fmt.Printf("[int32 array len: %d]", len(p.AsInt32Slice()))
 		s := p.AsInt32Slice()
 		return fmt.Sprintf("[int32 array len: %d]", len(s))
 	}
@@ -424,8 +445,7 @@ func expand(out *os.File, node *Node) {
 	for i := 0; i < depth; i++ {
 		out.WriteString("--")
 	}
-	out.WriteString("-> ")
-	out.WriteString(node.Name + "\n")
+	fmt.Fprintf(out, "-> [%d] %s\n", node.id, node.Name)
 
 	for _, p := range node.Properties {
 		for i := 0; i < depth; i++ {

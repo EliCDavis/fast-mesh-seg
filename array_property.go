@@ -29,6 +29,28 @@ func NewArrayPropertyInt32Slice(p []int32) *ArrayProperty {
 	}
 }
 
+func NewArrayPropertyInt32CompressedSlice(p []int32) *ArrayProperty {
+	buf := new(bytes.Buffer)
+	err := binary.Write(buf, binary.LittleEndian, p)
+	if err != nil {
+		panic(err)
+	}
+
+	var b bytes.Buffer
+	w := zlib.NewWriter(&b)
+	w.Write(buf.Bytes())
+	w.Close()
+	compressedBytes := b.Bytes()
+
+	return &ArrayProperty{
+		TypeCode:         'i',
+		Data:             compressedBytes,
+		ArrayLength:      uint32(len(p)),
+		Encoding:         1,
+		CompressedLength: uint32(len(compressedBytes)),
+	}
+}
+
 func NewArrayPropertyFloat64Slice(p []float64) *ArrayProperty {
 	buf := new(bytes.Buffer)
 	binary.Write(buf, binary.LittleEndian, p)
@@ -38,6 +60,28 @@ func NewArrayPropertyFloat64Slice(p []float64) *ArrayProperty {
 		ArrayLength:      uint32(len(p)),
 		Encoding:         0,
 		CompressedLength: 0,
+	}
+}
+
+func NewArrayPropertyFloat64CompressedSlice(p []float64) *ArrayProperty {
+	buf := new(bytes.Buffer)
+	err := binary.Write(buf, binary.LittleEndian, p)
+	if err != nil {
+		panic(err)
+	}
+
+	var b bytes.Buffer
+	w := zlib.NewWriter(&b)
+	w.Write(buf.Bytes())
+	w.Close()
+	compressedBytes := b.Bytes()
+
+	return &ArrayProperty{
+		TypeCode:         'd',
+		Data:             compressedBytes,
+		ArrayLength:      uint32(len(p)),
+		Encoding:         1,
+		CompressedLength: uint32(len(compressedBytes)),
 	}
 }
 
@@ -72,10 +116,8 @@ func (p ArrayProperty) Write(w io.Writer) error {
 	}
 
 	_, err = w.Write(p.Data)
-	if err != nil {
-		return err
-	}
-	return nil
+
+	return err
 }
 
 // AsFloat32Slice attempts to parse the buffer as an array of 32bit floats

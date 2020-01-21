@@ -16,6 +16,7 @@ type Node struct {
 	ArrayProperties []*ArrayProperty
 	NestedNodes     []*Node
 	Length          uint64
+	id              uint64
 }
 
 // NewNode creates a new node and calculates some properties required to write to file
@@ -37,6 +38,9 @@ func NewNode(name string, properties []*Property, arrayProperties []*ArrayProper
 		}
 		nestedLength += n.Length
 	}
+	// if len(nestedNodes) > 0 {
+	// 	nestedLength += 25
+	// }
 
 	return &Node{
 		NumProperties:   uint64(len(properties) + len(arrayProperties)),
@@ -72,6 +76,11 @@ func NewNodeInt32(name string, i int32) *Node {
 	return NewNode(name, []*Property{NewPropertyInt32(i)}, nil, nil)
 }
 
+// NewNodeInt64 creates a new node with a single int64 property
+func NewNodeInt64(name string, i int64) *Node {
+	return NewNode(name, []*Property{NewPropertyInt64(i)}, nil, nil)
+}
+
 // NewNodeString creates a new node with a single string property
 func NewNodeString(name string, s string) *Node {
 	return NewNode(name, []*Property{NewPropertyString(s)}, nil, nil)
@@ -82,8 +91,81 @@ func NewNodeParent(name string, children ...*Node) *Node {
 	return NewNode(name, nil, nil, children)
 }
 
-func (node Node) Write(writer io.Writer, currentOffset uint64) (uint64, error) {
-	err := binary.Write(writer, binary.LittleEndian, uint64(node.Length+currentOffset))
+// ShallowCopy returns a new node and shallow copies of any array type
+// contained within the struct
+func (n Node) ShallowCopy() *Node {
+	props := make([]*Property, len(n.Properties))
+	copy(props, n.Properties)
+
+	arrayProps := make([]*ArrayProperty, len(n.ArrayProperties))
+	copy(arrayProps, n.ArrayProperties)
+
+	newNodes := make([]*Node, len(n.NestedNodes))
+	copy(newNodes, n.NestedNodes)
+
+	return &Node{
+		NumProperties:   n.NumProperties,
+		PropertyListLen: n.PropertyListLen,
+		NameLen:         n.NameLen,
+		Name:            n.Name,
+		Properties:      props,
+		ArrayProperties: arrayProps,
+		NestedNodes:     newNodes,
+		Length:          n.Length,
+		id:              n.id,
+	}
+}
+
+func (n *Node) ApplyDiffs(diffs []Diff) (*Node, []Diff) {
+
+	remainingDiffs := make([]Diff, 0)
+	diffedNode := n
+	for _, diff := range diffs {
+		actuallyDiffed := false
+		diffedNode, actuallyDiffed = diff.Apply(diffedNode)
+		if actuallyDiffed == false {
+			remainingDiffs = append(remainingDiffs, diff)
+		}
+	}
+
+	for i, nested := range diffedNode.NestedNodes {
+		diffedNode.NestedNodes[i], remainingDiffs = nested.ApplyDiffs(remainingDiffs)
+	}
+
+	var propertyLength uint64
+	for _, p := range diffedNode.Properties {
+		propertyLength += p.Size()
+	}
+
+	for _, p := range diffedNode.ArrayProperties {
+		propertyLength += p.Size()
+	}
+	diffedNode.PropertyListLen = propertyLength
+
+	var nestedLength uint64
+	for _, n := range diffedNode.NestedNodes {
+		if n == nil {
+			continue
+		}
+		nestedLength += n.Length
+	}
+	// if len(diffedNode.NestedNodes) > 0 {
+	// 	nestedLength += 25
+	// }
+
+	diffedNode.Length = nestedLength + propertyLength + uint64(len(diffedNode.Name)) + 25
+	diffedNode.NameLen = uint8(len(diffedNode.Name))
+	diffedNode.NumProperties = uint64(len(diffedNode.Properties) + len(diffedNode.ArrayProperties))
+
+	return diffedNode, remainingDiffs
+}
+
+func (node Node) Write(writer io.Writer, currentOffset uint64, endOfList bool) (uint64, error) {
+	offset := node.Length
+	if offset != 0 {
+		offset += currentOffset
+	}
+	err := binary.Write(writer, binary.LittleEndian, uint64(offset))
 	if err != nil {
 		return 0, err
 	}
@@ -123,15 +205,26 @@ func (node Node) Write(writer io.Writer, currentOffset uint64) (uint64, error) {
 	}
 
 	offsetSofar := currentOffset + 25 + uint64(node.NameLen) + node.PropertyListLen
-	for _, p := range node.NestedNodes {
-		offset, err := p.Write(writer, offsetSofar)
+	for i, p := range node.NestedNodes {
+		offsetSofar, err = p.Write(writer, offsetSofar, len(node.NestedNodes)-1 == i)
 		if err != nil {
 			return 0, nil
 		}
-		offsetSofar = offset
 	}
 
-	return node.Length + currentOffset, nil
+	// bytesWritten := 0
+	// if len(node.NestedNodes) > 0 {
+	// 	_, err = writer.Write([]byte{
+	// 		// bytesWritten, err = writer.Write([]byte{
+	// 		0, 0, 0, 0, 0,
+	// 		0, 0, 0, 0, 0,
+	// 		0, 0, 0, 0, 0,
+	// 		0, 0, 0, 0, 0,
+	// 		0, 0, 0, 0, 0,
+	// 	})
+	// }
+
+	return uint64(node.Length + currentOffset), err
 }
 
 // PropertyInfo looks at all properties contained within the node and computes

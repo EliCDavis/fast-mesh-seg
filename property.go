@@ -23,6 +23,16 @@ func NewPropertyInt32(p int32) *Property {
 	}
 }
 
+// NewPropertyInt64 creates a property that holds data for an Int64
+func NewPropertyInt64(p int64) *Property {
+	buf := new(bytes.Buffer)
+	binary.Write(buf, binary.LittleEndian, p)
+	return &Property{
+		TypeCode: 'L',
+		Data:     buf.Bytes(),
+	}
+}
+
 // NewPropertyString creates a property that holds data for a string
 func NewPropertyString(s string) *Property {
 	return &Property{

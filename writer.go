@@ -62,7 +62,7 @@ func (w *Writer) WriteNode(n *Node) bool {
 		return false
 	}
 
-	newOffset, err := n.Write(w.w, w.currentOffset)
+	newOffset, err := n.Write(w.w, w.currentOffset, false)
 	if err != nil {
 		w.err = err
 		return false

@@ -20,6 +20,7 @@ type FBXReader struct {
 	currentResultsBuffer     []*Node
 	currentResultsBufferSize int64
 	nodeHeader               []byte
+	curNodeCount             uint64
 }
 
 // NewReader creates a new reader
@@ -79,10 +80,10 @@ func (fr *FBXReader) ReadFrom(r io.ReadSeeker) (n int64, err error) {
 		if fr.Error != nil {
 			break
 		}
+		fr.FBX.Nodes = append(fr.FBX.Nodes, node)
 		if empty {
 			break
 		}
-		fr.FBX.Nodes = append(fr.FBX.Nodes, node)
 	}
 
 	// if fr.currentResultsBufferSize > 0 {
@@ -103,6 +104,8 @@ func (fr *FBXReader) ReadHeaderFrom(r io.Reader) *Header {
 // ReadNodeFrom builds a node from the reader and returns true if the node was empty
 func (fr *FBXReader) ReadNodeFrom(r io.ReadSeeker) (*Node, bool) {
 	node := &Node{}
+	node.id = fr.curNodeCount
+	fr.curNodeCount++
 	fr.stack.push(node)
 	defer fr.stack.pop()
 
@@ -135,6 +138,12 @@ func (fr *FBXReader) ReadNodeFrom(r io.ReadSeeker) (*Node, bool) {
 
 	size := endOffset - uint64(fr.Position)
 
+	if fr.FBX.Header.Version() >= 7500 {
+		node.Length = size + 25
+	} else {
+		node.Length = size + 13
+	}
+
 	if node.NameLen > 0 {
 		bb := fr.read(r, int(node.NameLen))
 		if fr.Error != nil {
@@ -144,6 +153,7 @@ func (fr *FBXReader) ReadNodeFrom(r io.ReadSeeker) (*Node, bool) {
 	}
 
 	if endOffset == 0 {
+		node.Length = 0
 		return node, true
 	}
 
@@ -173,10 +183,10 @@ func (fr *FBXReader) ReadNodeFrom(r io.ReadSeeker) (*Node, bool) {
 			break
 		}
 
+		node.NestedNodes = append(node.NestedNodes, subNode)
 		if empty {
 			break
 		}
-		node.NestedNodes = append(node.NestedNodes, subNode)
 	}
 
 	if fr.matcher != nil && fr.results != nil {
