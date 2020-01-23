@@ -87,8 +87,6 @@ func SplitByPlane(geomNode *Node, clippingPlane Plane) ([]Diff, []Diff) {
 	vertice, _ := vertexNodes[0].Float64Slice()
 	verticeIndexes, _ := polyVertexNodes[0].Int32Slice()
 
-	log.Println(len(verticeIndexes))
-
 	// marked 1 if it's retained, 2 if it's clipped, 3 if it's in both.
 	// eventually those marked 3 will disapear as I have to create new polys
 	// for a proper split by plane.
@@ -251,10 +249,8 @@ func SplitByPlane(geomNode *Node, clippingPlane Plane) ([]Diff, []Diff) {
 	// 	},
 	// )
 
-	log.Printf("Retained: %d", len(retainedPolyVertexIndices)/3)
-	log.Printf("clipped: %d", len(clippedPolyVertexIndices)/3)
-
-	log.Println(len(verticeIndexes))
+	// log.Printf("Retained: %d", len(retainedPolyVertexIndices)/3)
+	// log.Printf("clipped: %d", len(clippedPolyVertexIndices)/3)
 
 	// clippedNode := NewNodeParent(
 	// 	"Geometry",
@@ -267,8 +263,8 @@ func SplitByPlane(geomNode *Node, clippingPlane Plane) ([]Diff, []Diff) {
 		// NewArrayPropertyDiff(polyVertexNodes[0].id, NewArrayPropertyInt32CompressedSlice(verticeIndexes)),
 		},
 		[]Diff{
-		// NewArrayPropertyDiff(vertexNodes[0].id, NewArrayPropertyFloat64CompressedSlice(clippedVertexes)),
-		// NewArrayPropertyDiff(polyVertexNodes[0].id, NewArrayPropertyInt32CompressedSlice(clippedPolyVertexIndices)),
+			NewArrayPropertyDiff(vertexNodes[0].id, NewArrayPropertyFloat64CompressedSlice(clippedVertexes)),
+			NewArrayPropertyDiff(polyVertexNodes[0].id, NewArrayPropertyInt32CompressedSlice(clippedPolyVertexIndices)),
 		}
 }
 
@@ -342,7 +338,7 @@ func SplitByPlaneProgram(
 	return fbx
 }
 
-func step1(f string) *FBX {
+func step1(f string, p Plane, workers int) *FBX {
 	retainedOut, err := os.Create("retained.fbx")
 	check(err)
 	defer retainedOut.Close()
@@ -351,41 +347,41 @@ func step1(f string) *FBX {
 	check(err)
 	defer clippedOut.Close()
 
-	fbx := SplitByPlaneProgram("dragon_vrip.fbx", NewPlane(vector.Vector3Zero(), vector.Vector3Forward()), 3, retainedOut, clippedOut)
+	fbx := SplitByPlaneProgram(f, p, workers, retainedOut, clippedOut)
 	return fbx
 }
 
 func main() {
 
-	out, err := os.Create("out.txt")
-	check(err)
-	defer out.Close()
+	// out, err := os.Create("out.txt")
+	// check(err)
+	// defer out.Close()
 
 	// log.Printf("Retained Model Polygon Count: %d", len(retained.GetFaces()))
 	// log.Printf("Clipped Model Polygon Count: %d", len(clipped.GetFaces()))
 
-	fbx := step1("dragon_vrip.fbx")
-	expand(out, fbx.Top)
-	for _, c := range fbx.Nodes {
-		expand(out, c)
-	}
+	// fbx := step1("dragon_vrip.fbx", NewPlane(vector.Vector3Zero(), vector.Vector3Forward())
+	// expand(out, fbx.Top)
+	// for _, c := range fbx.Nodes {
+	// 	expand(out, c)
+	// }
 
-	f, err := os.Open("retained.fbx")
-	check(err)
-	defer f.Close()
+	// f, err := os.Open("retained.fbx")
+	// check(err)
+	// defer f.Close()
 
-	reader := NewReader()
-	reader.ReadFrom(f)
-	check(reader.Error)
-	expand(out, reader.FBX.Top)
-	for _, c := range reader.FBX.Nodes {
-		expand(out, c)
-	}
+	// reader := NewReader()
+	// reader.ReadFrom(f)
+	// check(reader.Error)
+	// expand(out, reader.FBX.Top)
+	// for _, c := range reader.FBX.Nodes {
+	// 	expand(out, c)
+	// }
 
 	// save(retained, "retained.obj")
 	// save(clipped, "clipped.obj")
 
-	// _, retained, clipped := SplitByPlaneProgram("HIB-model.fbx", NewPlane(vector.NewVector3(105.4350, 119.4877, 77.9060), vector.Vector3Up()), 3)
+	step1("HIB-model.fbx", NewPlane(vector.NewVector3(105.4350, 119.4877, 77.9060), vector.Vector3Up()), 3)
 	// log.Printf("Retained Model Polygon Count: %d", len(retained.GetFaces()))
 	// log.Printf("Clipped Model Polygon Count: %d", len(clipped.GetFaces()))
 	// log.Print(retained.GetCenterOfBoundingBox())
@@ -431,9 +427,6 @@ func arrayPropertyToString(p *ArrayProperty) string {
 	}
 
 	if string(p.TypeCode) == "i" {
-		fmt.Printf("[int32 array len: %d]", len(p.AsInt32Slice()))
-		fmt.Printf("[int32 array len: %d]", len(p.AsInt32Slice()))
-		fmt.Printf("[int32 array len: %d]", len(p.AsInt32Slice()))
 		s := p.AsInt32Slice()
 		return fmt.Sprintf("[int32 array len: %d]", len(s))
 	}

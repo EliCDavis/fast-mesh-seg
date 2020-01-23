@@ -127,8 +127,9 @@ You can see a majority of the time spent parsing a node is on it's header data (
 
 ### OSS 
 
-Credits to [o5h](https://github.com/o5h/fbx/tree/3a77542940a3e1fb404bfd00f2e49565a504a2df) and [three.js](https://github.com/mrdoob/three.js/blob/de530d6bae1bf40d1e001411bc3e02a915c2c993/examples/js/loaders/FBXLoader.js) for helping me get started with code. Credits to blender for a detailed [explanation to the fbx format](https://code.blender.org/2013/08/fbx-binary-file-format-specification/).
+Credits to [o5h](https://github.com/o5h/fbx/tree/3a77542940a3e1fb404bfd00f2e49565a504a2df) and [three.js](https://github.com/mrdoob/three.js/blob/de530d6bae1bf40d1e001411bc3e02a915c2c993/examples/js/loaders/FBXLoader.js) for helping me get started with code. Credits to blender for a detailed [explanation to the fbx format](https://code.blender.org/2013/08/fbx-binary-file-format-specification/). Also [this repository](https://github.com/hamish-milne/FbxWriter/blob/master/Fbx/FbxBinary.cs) for helping me with the writer.
 
 ### Other Resources
 
 * [Clipping a Mesh Against a Plane](https://www.geometrictools.com/Documentation/ClipMesh.pdf)
+* [Binary Diffing](https://superuser.com/questions/125376/how-do-i-compare-binary-files-in-linux/968863#968863) (for debugging purposes).

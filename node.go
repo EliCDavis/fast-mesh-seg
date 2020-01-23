@@ -38,9 +38,6 @@ func NewNode(name string, properties []*Property, arrayProperties []*ArrayProper
 		}
 		nestedLength += n.Length
 	}
-	// if len(nestedNodes) > 0 {
-	// 	nestedLength += 25
-	// }
 
 	return &Node{
 		NumProperties:   uint64(len(properties) + len(arrayProperties)),
@@ -118,6 +115,10 @@ func (n Node) ShallowCopy() *Node {
 
 func (n *Node) ApplyDiffs(diffs []Diff) (*Node, []Diff) {
 
+	if n.Length == 0 {
+		return n, diffs
+	}
+
 	remainingDiffs := make([]Diff, 0)
 	diffedNode := n
 	for _, diff := range diffs {
@@ -147,11 +148,14 @@ func (n *Node) ApplyDiffs(diffs []Diff) (*Node, []Diff) {
 		if n == nil {
 			continue
 		}
-		nestedLength += n.Length
+		// Length of 0 denotes empty node, but it still takes up space when
+		// we write it to disk, empty nodes take up 25 bytes
+		if n.Length == 0 {
+			nestedLength += 25
+		} else {
+			nestedLength += n.Length
+		}
 	}
-	// if len(diffedNode.NestedNodes) > 0 {
-	// 	nestedLength += 25
-	// }
 
 	diffedNode.Length = nestedLength + propertyLength + uint64(len(diffedNode.Name)) + 25
 	diffedNode.NameLen = uint8(len(diffedNode.Name))
