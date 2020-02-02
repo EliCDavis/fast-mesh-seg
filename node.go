@@ -17,6 +17,7 @@ type Node struct {
 	NestedNodes     []*Node
 	Length          uint64
 	id              uint64
+	endingID        uint64 // ID of the last descendent node
 }
 
 // NewNode creates a new node and calculates some properties required to write to file
@@ -110,27 +111,43 @@ func (n Node) ShallowCopy() *Node {
 		NestedNodes:     newNodes,
 		Length:          n.Length,
 		id:              n.id,
+		endingID:        n.endingID,
 	}
 }
 
-func (n *Node) ApplyDiffs(diffs []Diff) (*Node, []Diff) {
+func (n *Node) ApplyDiffs(allDiffs []Diff, curDifIndex int) (*Node, int) {
 
 	if n.Length == 0 {
-		return n, diffs
+		return n, curDifIndex
 	}
 
-	remainingDiffs := make([]Diff, 0)
+	if len(allDiffs) == 0 || len(allDiffs) == curDifIndex {
+		return n, curDifIndex
+	}
+
+	// if none of the diffs apply to any of the nodes or subnode..
+	if n.endingID < allDiffs[curDifIndex].NodeID() {
+		return n, curDifIndex
+	}
+
+	newDifIndex := curDifIndex
 	diffedNode := n
-	for _, diff := range diffs {
-		actuallyDiffed := false
-		diffedNode, actuallyDiffed = diff.Apply(diffedNode)
-		if actuallyDiffed == false {
-			remainingDiffs = append(remainingDiffs, diff)
+
+	for newDifIndex < len(allDiffs) {
+		if n.id < allDiffs[newDifIndex].NodeID() {
+			break
+		}
+		if allDiffs[newDifIndex].NodeID() == n.id {
+			diffedNode, _ = allDiffs[newDifIndex].Apply(diffedNode)
+		}
+		newDifIndex++
+		if diffedNode == nil {
+			return diffedNode, newDifIndex
 		}
 	}
 
 	for i, nested := range diffedNode.NestedNodes {
-		diffedNode.NestedNodes[i], remainingDiffs = nested.ApplyDiffs(remainingDiffs)
+		diffedNode.NestedNodes[i], newDifIndex = nested.ApplyDiffs(allDiffs, newDifIndex)
 	}
 
 	var propertyLength uint64
@@ -161,7 +178,7 @@ func (n *Node) ApplyDiffs(diffs []Diff) (*Node, []Diff) {
 	diffedNode.NameLen = uint8(len(diffedNode.Name))
 	diffedNode.NumProperties = uint64(len(diffedNode.Properties) + len(diffedNode.ArrayProperties))
 
-	return diffedNode, remainingDiffs
+	return diffedNode, newDifIndex
 }
 
 func (node Node) Write(writer io.Writer, currentOffset uint64, endOfList bool) (uint64, error) {
@@ -215,18 +232,6 @@ func (node Node) Write(writer io.Writer, currentOffset uint64, endOfList bool) (
 			return 0, nil
 		}
 	}
-
-	// bytesWritten := 0
-	// if len(node.NestedNodes) > 0 {
-	// 	_, err = writer.Write([]byte{
-	// 		// bytesWritten, err = writer.Write([]byte{
-	// 		0, 0, 0, 0, 0,
-	// 		0, 0, 0, 0, 0,
-	// 		0, 0, 0, 0, 0,
-	// 		0, 0, 0, 0, 0,
-	// 		0, 0, 0, 0, 0,
-	// 	})
-	// }
 
 	return uint64(node.Length + currentOffset), err
 }

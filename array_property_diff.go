@@ -31,3 +31,8 @@ func (d ArrayPropertyDiff) Apply(n *Node) (*Node, bool) {
 
 	return patchedNode, true
 }
+
+// NodeID is the id of the node we want to apply the dif too
+func (d ArrayPropertyDiff) NodeID() uint64 {
+	return d.nodeID
+}

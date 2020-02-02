@@ -105,6 +105,7 @@ func (fr *FBXReader) ReadHeaderFrom(r io.Reader) *Header {
 func (fr *FBXReader) ReadNodeFrom(r io.ReadSeeker) (*Node, bool) {
 	node := &Node{}
 	node.id = fr.curNodeCount
+	node.endingID = node.id
 	fr.curNodeCount++
 	fr.stack.push(node)
 	defer fr.stack.pop()
@@ -182,6 +183,7 @@ func (fr *FBXReader) ReadNodeFrom(r io.ReadSeeker) (*Node, bool) {
 		if fr.Error != nil {
 			break
 		}
+		node.endingID = subNode.endingID
 
 		node.NestedNodes = append(node.NestedNodes, subNode)
 		if empty {

@@ -8,15 +8,18 @@ import (
 // PatchWriter takes an fbx and a list of patches and writes out the results
 // the underlying writer
 type PatchWriter struct {
-	fbx            *FBX
-	diffs          []Diff
-	remainingDiffs []Diff
+	fbx       *FBX
+	diffs     []Diff
+	diffIndex int
+	callback  func(int, error)
 }
 
-func NewPatchWriter(fbx *FBX, diffs []Diff) *PatchWriter {
+func NewPatchWriter(fbx *FBX, diffs []Diff, callback func(int, error)) *PatchWriter {
 	return &PatchWriter{
-		fbx:   fbx,
-		diffs: diffs,
+		fbx:       fbx,
+		diffs:     diffs,
+		callback:  callback,
+		diffIndex: 0,
 	}
 }
 
@@ -28,9 +31,6 @@ func (pw PatchWriter) Write(w io.Writer) (int, error) {
 	if err != nil {
 		return currentOffset, err
 	}
-
-	pw.remainingDiffs = make([]Diff, len(pw.diffs))
-	copy(pw.remainingDiffs, pw.diffs)
 
 	currentOffset, err = pw.writeNode(w, pw.fbx.Top, currentOffset, false)
 	if err != nil {
@@ -57,19 +57,20 @@ func (pw PatchWriter) Write(w io.Writer) (int, error) {
 	n, err := w.Write(fuckingEmpty)
 
 	if err != nil {
-		return currentOffset + 8 + n, err
+		return currentOffset + 16 + n, err
 	}
 
 	// this just appears at the end of every compliant file
 	n, err = w.Write([]byte{0xF8, 0x5A, 0x8C, 0x6A, 0xDE, 0xF5, 0xD9, 0x7E, 0xEC, 0xE9, 0x0C, 0xE3, 0x75, 0x8F, 0x29, 0x0B})
 
-	return currentOffset + 128 + n, err
+	pw.callback(currentOffset+136+n, err)
+	return currentOffset + 136 + n, err
 }
 
 // WriteNode writes a node to the writer, and returns true if you can continue writing
 func (pw *PatchWriter) writeNode(w io.Writer, n *Node, currentOffset int, endOfList bool) (int, error) {
 	var diffedNode *Node
-	diffedNode, pw.remainingDiffs = n.ApplyDiffs(pw.remainingDiffs)
+	diffedNode, pw.diffIndex = n.ApplyDiffs(pw.diffs, pw.diffIndex)
 	newOffset, err := diffedNode.Write(w, uint64(currentOffset), endOfList)
 	// newOffset, err := n.Write(w, uint64(currentOffset), endOfList)
 	return int(newOffset), err
